@@ -23,6 +23,7 @@ module csr (
     output reg  [15:0]             rdata,
     // trace event from granted thread (top gates with trace_en/grant)
     input  wire [3:0]              thr_evt,
+    input  wire                    thr_evt_en,
 
     // identity / context mux inputs (from top)
     input  wire [1:0]              sel_tid,        // granting thread id
@@ -57,6 +58,10 @@ module csr (
     // edge unit status
     input  wire [7:0]              edg_valid,
     input  wire                    edg_fired,
+
+    // bit engine event pulses
+    input  wire                    be_evt_tx,
+    input  wire                    be_evt_rx,
 
     // granted-thread status flags (top muxes per sel_q)
     input  wire                    thr_cy,
@@ -112,9 +117,7 @@ module csr (
   // ------------------------------------------------------------------ state
   reg [15:0] isr;
   reg [15:0] trig_mask;
-  reg [15:0] crc_pl, crc_ph, crc_ol, crc_oh;
   reg [4:0]  crc_ls;
-  reg [15:0] crc_seed;
   reg        crc_seed_load;
   reg [7:0]  gpo_wr; reg gpo_we;
   reg [7:0]  goe_wr; reg goe_we;
@@ -198,8 +201,7 @@ module csr (
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       isr <= 16'h0; trig_mask <= 16'h0;
-      crc_pl <= 16'h0; crc_ph <= 16'h0; crc_ol <= 16'h0; crc_oh <= 16'h0;
-      crc_ls <= 5'd16; crc_seed <= 16'h0; crc_seed_load <= 1'b0;
+      crc_ls <= 5'd16; crc_seed_load <= 1'b0;
       gpo_we <= 1'b0; gpo_wr <= 8'h0; goe_we <= 1'b0; goe_wr <= 8'h0;
       errcnt <= 6'd0; ts_sel <= 2'd0; sel_dbg <= 1'b0;
       clr_trace <= 1'b0; trace_en <= 1'b0; tr_pop <= 1'b0;
@@ -230,21 +232,24 @@ module csr (
 
       if (we | hcsr_we) begin
         case (hcsr_we ? hcsr_addr : addr)
-          `CSR_ISR: ;  // handled via wclr below
+          `CSR_ISR: ;  // handled via wclr above
           `CSR_IOM:  begin owm_we <= 1'b1; owm_tgt <= 2'd0;
                            owm_data <= wdata[7:0]; end
           `CSR_OWM:  begin owm_we <= 1'b1; owm_tgt <= 2'd1;
                            owm_data <= wdata[7:0]; end
           `CSR_TMASK: trig_mask <= wdata;
-          `CSR_CRCPL: crc_pl <= wdata;
-          `CSR_CRCPH: crc_ph <= wdata;
-          `CSR_CRCOX: crc_ol <= wdata;
-          `CSR_CRCOXH: crc_oh <= wdata;
-          `CSR_CRCLS: crc_ls <= wdata[4:0];
-          `CSR_CRCSEEDL: begin crc_seed[7:0]  <= wdata[7:0];
-                               crc_seed_load <= 1'b1; end
-          `CSR_CRCSEEDH: begin crc_seed[15:8] <= wdata[7:0];
-                               crc_seed_load <= 1'b1; end
+          `CSR_CRCPL: begin be_cfg_we <= 1'b1; be_cfg_addr <= 4'd8;
+                              be_cfg_wdata <= wdata; end
+          `CSR_CRCPH: begin be_cfg_we <= 1'b1; be_cfg_addr <= 4'd9;
+                              be_cfg_wdata <= wdata; end
+          `CSR_CRCOX: begin be_cfg_we <= 1'b1; be_cfg_addr <= 4'd10;
+                              be_cfg_wdata <= wdata; end
+          `CSR_CRCOXH: begin be_cfg_we <= 1'b1; be_cfg_addr <= 4'd11;
+                              be_cfg_wdata <= wdata; end
+          `CSR_CRCLS: begin be_cfg_we <= 1'b1; be_cfg_addr <= 4'd12;
+                              be_cfg_wdata <= wdata; crc_ls <= wdata[4:0]; end
+          `CSR_CRCSEEDL: begin crc_seed_load <= 1'b1; end
+          `CSR_CRCSEEDH: begin crc_seed_load <= 1'b1; end
           `CSR_GPOUT: begin gpo_we <= 1'b1; gpo_wr <= wdata[7:0]; end
           `CSR_GPOEN: begin goe_we <= 1'b1; goe_wr <= wdata[7:0]; end
           `CSR_BITCFG: begin be_cfg_we <= 1'b1; be_cfg_addr <= 4'd0;
@@ -275,12 +280,26 @@ module csr (
     end
   end
 
-  // hardware-only live events
-  assign live_hw = {11'h0000,
+  // hardware-only live events (bit [0] = RX done, sticky for one cycle)
+  assign live_hw = {8'h00,
+                    evt_rx_done_p,      // [7] bit engine RX done
+                    evt_tx_done_p,      // [6] bit engine TX done
                     edg_fired,          // [5] edge unit fired
                     ~tr_empty,          // [4] trace data available
                     ~tx_full,           // [3] tx fifo has space
                     ~rx_empty,          // [2] rx fifo has data
                     drv_err_pulse};     // [1] drive violation
+
+  // registered copies of single-cycle event pulses so they are visible to
+  // the ISR accumulation and to evt_now level checks for a full cycle
+  reg evt_tx_done_p, evt_rx_done_p;
+  always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      evt_tx_done_p <= 1'b0; evt_rx_done_p <= 1'b0;
+    end else begin
+      evt_tx_done_p <= be_evt_tx;
+      evt_rx_done_p <= be_evt_rx;
+    end
+  end
 
 endmodule

@@ -55,6 +55,10 @@ module thread #(
     output reg  [`JP_TIME_W-1:0]   d_wdata,
     output reg                     clr_deadline,    // pulse: D := 0 next cycle
 
+    // ---------------- thread register file (lives in top dm) ----------------
+    input  wire [15:0]             rf_rdata_a,
+    input  wire [15:0]             ldi_word,        // progmem pc+1 lane
+
     // ---------------- GPIO fabric ----------------
     input  wire [`JP_GPIO_W-1:0]   gpio_sync,
     input  wire [`JP_GPIO_W-1:0]   gpio_raw,
@@ -71,23 +75,26 @@ module thread #(
     output reg  [7:0]              gou_data,
 
     // ---------------- shared-window DM port ----------------
-    output reg                     sh_we,
-    output reg  [5:0]              sh_waddr,
-    output reg  [15:0]             sh_wdata,
-    output reg                     sh_re,
-    output reg  [5:0]              sh_raddr,
+    output wire [5:0]              sh_waddr,
+    output wire [15:0]             sh_wdata,
+    output wire [5:0]              sh_raddr,
     input  wire [15:0]             sh_rdata,
 
-    // ---------------- thread register-file port (rf lives in top dm) -------
-    output reg                     rf_we,
-    output reg  [7:0]              rf_waddr,
-    output reg  [15:0]             rf_wdata,
-    output reg                     rf_re_a,
-    output reg  [7:0]              rf_raddr_a,
-    input  wire [15:0]             rf_rdata_a,
 
-    // LDI second-word fetch (dedicated progmem read lane at top)
-    input  wire [15:0]             ldi_word,
+    // ---------------- dm write-port summary (top muxes these) -------------
+    output wire                    rf_we,
+    output wire [7:0]              rf_waddr,
+    output wire [15:0]             rf_wdata,
+    output wire [7:0]              rf_raddr_a,
+    output wire                    sh_wr_en_o,
+    output wire                    sh_re_en_o,
+    output wire                    ps_mbx_o,
+    output wire                    pp_mbx_o,
+
+    // ---------------- granted-thread status flags ---------------------------
+    output wire                    cy_o,
+    output wire                    ovf_o,
+    output wire                    zero_o,
 
     // ---------------- CSR ----------------
     output reg                     csr_we,
@@ -173,14 +180,34 @@ module thread #(
   assign sp_out     = sp;
   assign tmo_out    = tmo_q;
 
+  // rf/sh port strobes are computed in exec_blk as plain regs; the absolute
+  // dm addresses/data are exposed as wires (window base = TID*16).
+  reg        rf_wr_en, sh_wr_en, sh_re_en, ps_mbx, pp_mbx;
+  reg  [5:0] sh_waddr_r, sh_raddr_r;
+  reg  [15:0] sh_wdata_r;
+  assign sh_waddr  = sh_waddr_r;
+  assign sh_wdata  = sh_wdata_r;
+  assign sh_raddr  = sh_raddr_r;
+  reg  [7:0] rf_waddr_o, rf_raddr_o;
+  reg  [15:0] rf_wdata_o;
+  assign rf_waddr   = rf_waddr_o;
+  assign rf_raddr_a = rf_raddr_o;
+  assign rf_wdata   = rf_wdata_o;
+  assign rf_we      = rf_wr_en & grant & running & ~stalling & ~w_active;
+  assign sh_wr_en_o = sh_wr_en & grant & running & ~stalling & ~w_active;
+  assign sh_re_en_o = sh_re_en & grant & running & ~stalling & ~w_active;
+  assign ps_mbx_o   = ps_mbx;
+  assign pp_mbx_o   = pp_mbx;
+  assign cy_o       = cy_q;
+  assign ovf_o      = ovf_q;
+  assign zero_o     = zero_q;
+
   // pulse-gated outputs (registered, cleared unless re-asserted this grant)
   reg ext_trg_we, ext_idle_we;
 
   integer k;
   initial begin
     X = 16'h0; Y = 16'h0; sp = 6'd0;
-    rf_we = 1'b0; rf_waddr = 8'd0; rf_wdata = 16'h0;
-    rf_re_a = 1'b0; rf_raddr_a = 8'd0;
     pc = {`JP_PROG_AW{1'b0}}; running = 1'b0;
     cy_q = 1'b0; ovf_q = 1'b0; zero_q = 1'b0; tmo_q = 1'b0;
     w_active = 1'b0; w_kind = 3'd0; w_timer = 5'd0; w_inf = 1'b0; w_pinmask = 8'h0;
@@ -188,7 +215,6 @@ module thread #(
     d_we = 1'b0; d_wdata = {`JP_TIME_W{1'b0}}; clr_deadline = 1'b0;
     drv_we = 1'b0; drv_val = 8'h0; drv_oe = 8'h0; drv_od = 1'b0;
     gou_we = 1'b0; gou_op = 2'd0; gou_data = 8'h0;
-    sh_we = 1'b0; sh_waddr = 6'd0; sh_wdata = 16'h0; sh_re = 1'b0; sh_raddr = 6'd0;
     csr_we = 1'b0; csr_addr = 6'd0; csr_wdata = 16'h0; csr_re = 1'b0;
     be_cfg_we = 1'b0; be_cfg_addr = 4'd0; be_cfg_wdata = 16'h0;
     be_wrbit = 1'b0; be_wrbit_data = 8'h0;
@@ -331,12 +357,14 @@ module thread #(
     // ------- defaults: hold state, advance pc -------
     pc_next        = pc + 1'b1;
     x_next         = X;      y_next = Y;       sp_next = sp;
-    rf_we = 1'b0; rf_waddr = {5'b0, f_rr}; rf_wdata = X;
+    rf_waddr_o = {TID[`JP_THREAD_W-1:0], f_rr};
+    rf_wdata_o = X;
+    rf_wr_en = 1'b0; sh_wr_en = 1'b0; sh_re_en = 1'b0;
     d_we = 1'b0;   d_wdata = deadline_q; clr_deadline = 1'b0;
     drv_we = 1'b0; drv_val = X[7:0]; drv_oe = 8'h00; drv_od = 1'b0;
     gou_we = 1'b0; gou_op = 2'd0; gou_data = X[7:0];
-    sh_we = 1'b0;  sh_waddr = X[5:0]; sh_wdata = Y;
-    sh_re = 1'b0;  sh_raddr = Y[5:0];
+    sh_waddr_r = X[5:0]; sh_wdata_r = Y;
+    sh_raddr_r = Y[5:0];
     csr_we = 1'b0; csr_re = 1'b0; csr_addr = f_a; csr_wdata = X;
     be_cfg_we = 1'b0; be_cfg_addr = f_imm6[3:0]; be_cfg_wdata = X;
     be_wrbit = 1'b0; be_wrbit_data = X[7:0];
@@ -346,9 +374,8 @@ module thread #(
     trc_we = 1'b0; trc_evt = f_r[3:0];
     edg_we = 1'b0; edg_addr = {TID[1:0], f_rr[0]};
     ext_trg_we = 1'b0; ext_idle_we = 1'b0;
-    // rf read ports are combinational in top (muxed); these outputs carry the
-    // addresses computed this grant cycle.
-    rf_re_a = 1'b0; rf_raddr_a = {5'b0, f_rr};
+    rf_raddr_o = {TID[`JP_THREAD_W-1:0], f_rr};
+    ps_mbx = 1'b0; pp_mbx = 1'b0;
         edg_time = X; edg_val = Y[7:0]; edg_oe = Y[15:8]; edg_en = 1'b1;
     w_active_next = w_active; w_kind_next = w_kind; w_timer_next = w_timer;
     w_inf_next = w_inf; w_pinmask_next = w_pinmask;
@@ -373,12 +400,12 @@ module thread #(
         case (opcode)
           // -----------------------------------------------------------
           `OP_MOV: begin
-            rf_re_a = 1'b1; rf_raddr_a = {5'b0, f_rr};
+            rf_raddr_o = {TID[`JP_THREAD_W-1:0], f_rr};
             case (f_dst)
               2'd0: x_next = mov_src(f_src);
               2'd1: y_next = mov_src(f_src);
-              2'd2: begin rf_we = 1'b1; rf_waddr = {5'b0, f_rr};
-                        rf_wdata = mov_src(f_src); end
+              2'd2: begin rf_wr_en = 1'b1; rf_waddr_o = {TID[`JP_THREAD_W-1:0], f_rr};
+                        rf_wdata_o = mov_src(f_src); end
               default: x_next = rf_rdata_a;   // LDS-style read
             endcase
           end
@@ -408,7 +435,8 @@ module thread #(
             end else if (br_taken) begin
               pc_next = pc + 9'(off8) + 9'd1;
               if (f_a[5]) begin // link form: return addr -> rf[9]
-                rf_we = 1'b1; rf_waddr = 8'd9; rf_wdata = {6'h0, pc + 1'b1};
+                rf_wr_en = 1'b1; rf_waddr_o = {TID[`JP_THREAD_W-1:0], 3'd1};
+                rf_wdata_o = {6'h0, pc + 1'b1};
               end
             end
           end
@@ -475,10 +503,11 @@ module thread #(
               `PS_XLO: begin tx_wr = 1'b1; tx_wdata = X[7:0]; end
               `PS_XHI: begin tx_wr = 1'b1; tx_wdata = X[15:8]; end
               `PS_STK: begin
-                rf_we = 1'b1; rf_waddr = 8'd128 + {2'd0, sp}; rf_wdata = X;
+                rf_wr_en = 1'b1; rf_waddr_o = 8'd128 + {2'd0, sp};
+                rf_wdata_o = X;
                 sp_next = sp - 6'd1;
               end
-              `PS_MBX: begin tx_wr = 1'b1; tx_wdata = X[7:0]; end
+              `PS_MBX: begin tx_wr = 1'b1; tx_wdata = X[7:0]; ps_mbx = 1'b1; end
               default: ;
             endcase
           end
@@ -487,9 +516,9 @@ module thread #(
             case (f_r)
               `PP_XLO: begin rx_rd = 1'b1; x_next = {X[15:8], rx_rdata}; end
               `PP_XHI: begin rx_rd = 1'b1; x_next = {rx_rdata, X[7:0]}; end
-              `PP_STK: begin rf_re_a = 1'b1; rf_raddr_a = 8'd128 + {2'd0, sp};
+              `PP_STK: begin rf_raddr_o = 8'd128 + {2'd0, sp};
                            x_next = rf_rdata_a; sp_next = sp + 6'd1; end
-              `PP_MBX: begin rx_rd = 1'b1; x_next = {8'h00, rx_rdata}; end
+              `PP_MBX: begin rx_rd = 1'b1; x_next = {8'h00, rx_rdata}; pp_mbx = 1'b1; end
               default: ;
             endcase
           end
@@ -517,19 +546,21 @@ module thread #(
           `OP_LDI: begin
             // LDI r, imm16 — immediate word lives at pc+1; fetched through a
             // dedicated read lane (ldi_word). PC skips the operand word.
-            rf_we = 1'b1; rf_waddr = {5'b0, f_rr}; rf_wdata = ldi_word;
+            rf_wr_en = 1'b1; rf_waddr_o = {TID[`JP_THREAD_W-1:0], f_rr};
+            rf_wdata_o = ldi_word;
             pc_next = pc + 2'd2;
           end
           // -----------------------------------------------------------
           `OP_JMPR: begin
-            rf_re_a = 1'b1; rf_raddr_a = {5'b0, f_rr};
+            rf_raddr_o = {TID[`JP_THREAD_W-1:0], f_rr};
             if (f_a[5] == 1'b0) begin
               pc_next = rf_rdata_a[`JP_PROG_AW-1:0];
             end else begin
               pc_next = pc + {1'b0, imm9} + 1'b1; // direct relative imm9
             end
             if (f_a[4]) begin
-              rf_we = 1'b1; rf_waddr = 8'd9; rf_wdata = {6'h0, pc + 1'b1};
+              rf_wr_en = 1'b1; rf_waddr_o = {TID[`JP_THREAD_W-1:0], 3'd1};
+              rf_wdata_o = {6'h0, pc + 1'b1};
             end
           end
           // -----------------------------------------------------------
@@ -569,8 +600,8 @@ module thread #(
               `EXT_READT:   x_next = time_q[15:0];
               `EXT_READTH:  x_next = {8'h00, time_q[23:16]};
               `EXT_WRBIT:   begin be_wrbit = 1'b1; be_wrbit_data = X[7:0]; end
-              `EXT_RDSTSW:  begin sh_re = 1'b1; sh_raddr = X[5:0]; x_next = sh_rdata; end
-              `EXT_WRSTSW:  begin sh_we = 1'b1; sh_waddr = X[5:0]; sh_wdata = Y; end
+              `EXT_RDSTSW:  begin sh_re_en = 1'b1; sh_raddr_r = X[5:0]; x_next = sh_rdata; end
+              `EXT_WRSTSW:  begin sh_wr_en = 1'b1; sh_waddr_r = X[5:0]; sh_wdata_r = Y; end
               `EXT_GETOWM:  x_next = {8'h00, own_oe};
               `EXT_GETIOM:  x_next = {8'h00, own_in};
               `EXT_TRG:     begin ext_trg_we = 1'b1; ext_trg_bits_o = X[3:0]; end
@@ -579,8 +610,8 @@ module thread #(
               `EXT_DBGRD:   x_next = {8'h00, ui_in};
               `EXT_GETSP:   x_next = {10'h0, sp};
               `EXT_SETSP:   begin sp_next = X[5:0];
-                            rf_we = 1'b1; rf_waddr = 8'd10;
-                            rf_wdata = {10'h0, X[5:0]}; end
+                            rf_wr_en = 1'b1; rf_waddr_o = {TID[`JP_THREAD_W-1:0], 3'd2};
+                            rf_wdata_o = {10'h0, X[5:0]}; end
               `EXT_IDLE: begin
                 w_active_next = 1'b1; w_kind_next = `W_EV; w_inf_next = 1'b1;
                 ev_mask_next = X; ev_pol_next = 1'b0; pc_next = pc + 1'b1;
