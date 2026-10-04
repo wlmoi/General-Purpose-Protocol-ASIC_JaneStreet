@@ -40,6 +40,11 @@
 `define JP_MB_DEPTH      8
 `define JP_MB_AW         3
 
+// Thread register file: 16 registers per thread, accessed via dedicated
+// ports on the dm module (window base = TID*16).
+`define JP_RF_REGS       16
+`define JP_RF_BASE(t)    ((t)*16)
+
 // ---------------------------------------------------------------------------
 // Instruction opcodes (bits [15:12]) — see docs/ISA.md for full reference.
 // ---------------------------------------------------------------------------
@@ -212,9 +217,16 @@
 `define TEVT_SW2     4'h6
 `define TEVT_START   4'h7
 
-// Thread context offsets inside DM window (per-thread base = t*32)
-// X is at base+0, Y at base+1 (both via dedicated fast regs, aliased in DM).
+// Thread context offsets inside DM window (per-thread rf base = t*16)
 `define DM_SHARED_BASE 8'd192
+`define DM_STACK_BASE  8'd128   // push/pop stack window: base + sp[5:0]
+
+// CSR_THCTRL (thread-context form, written by OP_CSR) bit fields:
+//   [1:0] tid, [2] start pulse, [4] clear deadline, [7:5] new PC low bits
+//   when [3]=1 the deadline register is loaded with time_q + wdata[15:8].
+`define THCTRL_START   3
+`define THCTRL_CLRDL   4
+`define THCTRL_SETPCD  5
 
 // Pin indices for well-known protocol roles (firmware convention, not HW)
 // T0:UART-RX uio0, T1:UART-TX uio1, T2:I2C-SDA uio2, T2:I2C-SCL uio3,

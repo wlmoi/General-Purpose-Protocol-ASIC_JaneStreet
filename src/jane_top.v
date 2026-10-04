@@ -23,7 +23,7 @@
 
 `include "defines.vh"
 
-module top (
+module tt_um_jonestreet_protocol_engine (
     input  wire        clk,
     input  wire        rst_n,     // active-low async from TT (asserted during config)
     input  wire [7:0]  ui_in,
