@@ -23,11 +23,11 @@ async def test_project(dut):
     await ClockCycles(dut.clk, 10)
     dut.rst_n.value = 1
 
-    dut._log.info("Check deterministic reset state")
+    dut._log.info("Check deterministic activity state")
     await ClockCycles(dut.clk, 2)
-    assert dut.uo_out.value == 0
-    assert dut.uio_out.value == 0
-    assert dut.uio_oe.value == 0
+    assert dut.uo_out.value == 1
+    assert dut.uio_out.value == 1
+    assert dut.uio_oe.value == 0xFF
 
     # Keep testing the module by changing the input values, waiting for
     # one or more clock cycles, and asserting the expected output values.
