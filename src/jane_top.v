@@ -1,7 +1,7 @@
 `default_nettype none
 `include "defines.vh"
 
-module tt_um_jonestreet_protocol_engine (
+module tt_um_janestreet_protocol_engine (
     input  wire [7:0] ui_in,
     output wire [7:0] uo_out,
     input  wire [7:0] uio_in,
@@ -23,12 +23,14 @@ module tt_um_jonestreet_protocol_engine (
   reg [7:0] activity_q;
   integer i;
 
-  wire [15:0] instruction = prog_mem_q[pc[slot]];
+  wire [8:0] active_pc = pc[slot];
+  wire [15:0] active_x = x[slot];
+  wire [15:0] active_y = y[slot];
+  wire [15:0] instruction = prog_mem_q[active_pc];
   wire [3:0] opcode = instruction[15:12];
   wire [7:0] immediate = instruction[7:0];
   wire [2:0] function_code = instruction[11:9];
   wire [8:0] branch_target = pc[slot] + {{1{instruction[8]}}, instruction[8:1]} + 9'd1;
-  wire [7:0] input_mix = ui_in ^ uio_in;
 
   initial begin
     for (i = 0; i < `JP_PROG_DEPTH; i = i + 1)
@@ -49,7 +51,7 @@ module tt_um_jonestreet_protocol_engine (
         wait_count[i] <= 5'd0;
       end
     end else if (ena) begin
-      activity_q <= activity_q + input_mix;
+      activity_q <= activity_q + 8'd1;
       slot <= (slot == 2'd3) ? 2'd0 : slot + 2'd1;
       if (!halted[slot]) begin
         if (wait_count[slot] != 5'd0) begin
@@ -59,16 +61,16 @@ module tt_um_jonestreet_protocol_engine (
           case (opcode)
             4'h0: x[slot] <= {8'h00, immediate};
             4'h1: begin
-              output_q <= x[slot][7:0];
-              output_oe_q <= y[slot][7:0];
+              output_q <= active_x[7:0];
+              output_oe_q <= active_y[7:0];
             end
             4'h2: begin
               case (function_code)
-                3'd0: x[slot] <= x[slot] + y[slot];
-                3'd1: x[slot] <= x[slot] - y[slot];
-                3'd2: x[slot] <= x[slot] | y[slot];
-                3'd3: x[slot] <= x[slot] & y[slot];
-                3'd4: x[slot] <= x[slot] ^ y[slot];
+                3'd0: x[slot] <= active_x + active_y;
+                3'd1: x[slot] <= active_x - active_y;
+                3'd2: x[slot] <= active_x | active_y;
+                3'd3: x[slot] <= active_x & active_y;
+                3'd4: x[slot] <= active_x ^ active_y;
                 default: ;
               endcase
             end
@@ -77,7 +79,7 @@ module tt_um_jonestreet_protocol_engine (
             4'h4: wait_count[slot] <= immediate[4:0];
             4'h7: x[slot] <= {8'h00, uio_in};
             4'h9: begin
-              x[slot] <= prog_mem_q[pc[slot] + 9'd1];
+              x[slot] <= prog_mem_q[active_pc + 9'd1];
               pc[slot] <= pc[slot] + 9'd2;
             end
             default: ;

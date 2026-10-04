@@ -23,7 +23,7 @@ module tb ();
   wire [7:0] uio_out;
   wire [7:0] uio_oe;
 
-  tt_um_jonestreet_protocol_engine user_project (
+  tt_um_janestreet_protocol_engine user_project (
       .ui_in  (ui_in),    // Dedicated inputs
       .uo_out (uo_out),   // Dedicated outputs
       .uio_in (uio_in),   // IOs: Input path
