@@ -24,34 +24,34 @@ project:
 # This section is for the datasheet/website. Use descriptive names (e.g., RX, TX, MOSI, SCL, SEG_A, etc.).
 pinout:
   # Inputs
-  ui[0]: ""
-  ui[1]: ""
-  ui[2]: ""
-  ui[3]: ""
-  ui[4]: ""
-  ui[5]: ""
-  ui[6]: ""
-  ui[7]: ""
+  ui[0]: "engine enable"
+  ui[1]: "reserved control input"
+  ui[2]: "reserved control input"
+  ui[3]: "reserved control input"
+  ui[4]: "thread start mask bit 0"
+  ui[5]: "thread start mask bit 1"
+  ui[6]: "thread start mask bit 2"
+  ui[7]: "thread start mask bit 3"
 
   # Outputs
-  uo[0]: ""
-  uo[1]: ""
-  uo[2]: ""
-  uo[3]: ""
-  uo[4]: ""
-  uo[5]: ""
-  uo[6]: ""
-  uo[7]: ""
+  uo[0]: "activity and output state bit 0"
+  uo[1]: "activity and output state bit 1"
+  uo[2]: "activity and output state bit 2"
+  uo[3]: "activity and output state bit 3"
+  uo[4]: "activity and output state bit 4"
+  uo[5]: "activity and output state bit 5"
+  uo[6]: "activity and output state bit 6"
+  uo[7]: "activity and output state bit 7"
 
   # Bidirectional pins
-  uio[0]: ""
-  uio[1]: ""
-  uio[2]: ""
-  uio[3]: ""
-  uio[4]: ""
-  uio[5]: ""
-  uio[6]: ""
-  uio[7]: ""
+  uio[0]: "GPIO input bit 0"
+  uio[1]: "GPIO input bit 1"
+  uio[2]: "GPIO input bit 2"
+  uio[3]: "GPIO input bit 3"
+  uio[4]: "GPIO input bit 4"
+  uio[5]: "GPIO input bit 5"
+  uio[6]: "GPIO input bit 6"
+  uio[7]: "GPIO input bit 7"
 
 # Do not change!
 yaml_version: 6

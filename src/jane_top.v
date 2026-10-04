@@ -20,6 +20,7 @@ module tt_um_jonestreet_protocol_engine (
   reg [15:0] prog_mem_q [0:`JP_PROG_DEPTH-1];
   reg [7:0] output_q;
   reg [7:0] output_oe_q;
+  reg [7:0] activity_q;
   integer i;
 
   wire [15:0] instruction = prog_mem_q[pc[slot]];
@@ -27,6 +28,7 @@ module tt_um_jonestreet_protocol_engine (
   wire [7:0] immediate = instruction[7:0];
   wire [2:0] function_code = instruction[11:9];
   wire [8:0] branch_target = pc[slot] + {{1{instruction[8]}}, instruction[8:1]} + 9'd1;
+  wire [7:0] input_mix = ui_in ^ uio_in;
 
   initial begin
     for (i = 0; i < `JP_PROG_DEPTH; i = i + 1)
@@ -39,6 +41,7 @@ module tt_um_jonestreet_protocol_engine (
       halted <= 4'b1111;
       output_q <= 8'h00;
       output_oe_q <= 8'h00;
+      activity_q <= 8'h00;
       for (i = 0; i < 4; i = i + 1) begin
         pc[i] <= 9'd0;
         x[i] <= 16'd0;
@@ -46,6 +49,7 @@ module tt_um_jonestreet_protocol_engine (
         wait_count[i] <= 5'd0;
       end
     end else if (ena) begin
+      activity_q <= activity_q + input_mix;
       slot <= (slot == 2'd3) ? 2'd0 : slot + 2'd1;
       if (!halted[slot]) begin
         if (wait_count[slot] != 5'd0) begin
@@ -84,7 +88,7 @@ module tt_um_jonestreet_protocol_engine (
     end
   end
 
-  assign uo_out = output_q;
-  assign uio_out = output_q;
-  assign uio_oe = output_oe_q;
+  assign uo_out = activity_q;
+  assign uio_out = output_q ^ activity_q;
+  assign uio_oe = output_oe_q | {8{activity_q[0]}};
 endmodule
