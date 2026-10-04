@@ -40,3 +40,12 @@ The GitHub action will automatically build the ASIC files using [LibreLane](http
   - Mastodon [#tinytapeout](https://chaos.social/tags/tinytapeout) [@matthewvenn](https://chaos.social/@matthewvenn)
   - X (formerly Twitter) [#tinytapeout](https://twitter.com/hashtag/tinytapeout) [@tinytapeout](https://twitter.com/tinytapeout)
   - Bluesky [@tinytapeout.com](https://bsky.app/profile/tinytapeout.com)
+
+## Project and Author
+
+This project is part of the work of [William Anthony](https://www.linkedin.com/in/wlmoi/).
+
+- [Portfolio](https://wlmoi.vercel.app)
+- [LinkedIn](https://www.linkedin.com/in/wlmoi/)
+- [Instagram](https://www.instagram.com/wlmoi/)
+- [Resume](https://wlmoi.vercel.app/resume?print=1)
