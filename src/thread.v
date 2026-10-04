@@ -607,7 +607,6 @@ module thread #(
       w_inf <= w_inf_next; w_pinmask <= w_pinmask_next;
       ev_pol <= ev_pol_next; ev_mask <= ev_mask_next;
       err_sticky <= err_sticky | err_set;
-      if (rf_wen) rf[rf_widx] <= rf_wval;
     end
   end
 

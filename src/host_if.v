@@ -250,7 +250,7 @@ module host_if (
           6'h09: v = {1'b0, err_bitmap, 2'b00, pc_load_val[8]};
           6'h0A: v = mb_e2h_rdata;
           6'h0B: v = sel_trb();
-          6'h0C: v = 8'hJ5;
+          6'h0C: v = 8'hA5;
           default: v = 8'h00;
         endcase
       end
