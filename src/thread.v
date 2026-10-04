@@ -38,6 +38,8 @@ module thread #(
     input  wire                    grant,
     input  wire                    stalling,        // host owns progmem port
     input  wire                    start_lvl,       // level from THCTRL bitmap
+    input  wire                    pc_load_we,      // host PC-load pulse
+    input  wire [`JP_PROG_AW-1:0]  pc_load_val,
     output reg                     running,
     output reg  [`JP_PROG_AW-1:0]  pc,
     output wire                    waiting,
@@ -78,14 +80,11 @@ module thread #(
 
     // ---------------- thread register-file port (rf lives in top dm) -------
     output reg                     rf_we,
-    output reg  [4:0]              rf_waddr,
+    output reg  [7:0]              rf_waddr,
     output reg  [15:0]             rf_wdata,
     output reg                     rf_re_a,
-    output reg  [4:0]              rf_raddr_a,
+    output reg  [7:0]              rf_raddr_a,
     input  wire [15:0]             rf_rdata_a,
-    output reg                     rf_re_b,
-    output reg  [4:0]              rf_raddr_b,
-    input  wire [15:0]             rf_rdata_b,
 
     // LDI second-word fetch (dedicated progmem read lane at top)
     input  wire [15:0]             ldi_word,
@@ -101,8 +100,6 @@ module thread #(
     output reg                     be_cfg_we,
     output reg  [3:0]              be_cfg_addr,
     output reg  [15:0]             be_cfg_wdata,
-    input  wire                    rx_fifo_full,
-    input  wire                    tx_fifo_empty,
     output reg                     be_wrbit,
     output reg  [7:0]              be_wrbit_data,
     output reg                     be_ldshreg,
@@ -137,12 +134,10 @@ module thread #(
     // ---------------- trace ----------------
     output reg                     trc_we,
     output reg  [3:0]              trc_evt,
-    input  wire                    trace_en,
 
     // ---------------- edge units ----------------
     output reg                     edg_we,
     output reg  [2:0]              edg_addr,
-    input  wire [15:0]             time_lo,         // time_q[15:0] for EDG.ARM
     output reg  [15:0]             edg_time,
     output reg  [7:0]              edg_val,
     output reg  [7:0]              edg_oe,
@@ -184,8 +179,8 @@ module thread #(
   integer k;
   initial begin
     X = 16'h0; Y = 16'h0; sp = 6'd0;
-    rf_we = 1'b0; rf_waddr = 5'd0; rf_wdata = 16'h0;
-    rf_re_a = 1'b0; rf_raddr_a = 5'd0; rf_re_b = 1'b0; rf_raddr_b = 5'd0;
+    rf_we = 1'b0; rf_waddr = 8'd0; rf_wdata = 16'h0;
+    rf_re_a = 1'b0; rf_raddr_a = 8'd0;
     pc = {`JP_PROG_AW{1'b0}}; running = 1'b0;
     cy_q = 1'b0; ovf_q = 1'b0; zero_q = 1'b0; tmo_q = 1'b0;
     w_active = 1'b0; w_kind = 3'd0; w_timer = 5'd0; w_inf = 1'b0; w_pinmask = 8'h0;
@@ -336,7 +331,7 @@ module thread #(
     // ------- defaults: hold state, advance pc -------
     pc_next        = pc + 1'b1;
     x_next         = X;      y_next = Y;       sp_next = sp;
-    rf_we = 1'b0; rf_waddr = {1'b0, f_rr}; rf_wdata = X;
+    rf_we = 1'b0; rf_waddr = {5'b0, f_rr}; rf_wdata = X;
     d_we = 1'b0;   d_wdata = deadline_q; clr_deadline = 1'b0;
     drv_we = 1'b0; drv_val = X[7:0]; drv_oe = 8'h00; drv_od = 1'b0;
     gou_we = 1'b0; gou_op = 2'd0; gou_data = X[7:0];
@@ -353,9 +348,8 @@ module thread #(
     ext_trg_we = 1'b0; ext_idle_we = 1'b0;
     // rf read ports are combinational in top (muxed); these outputs carry the
     // addresses computed this grant cycle.
-    rf_re_a = 1'b0; rf_raddr_a = {1'b0, f_rr};
-    rf_re_b = 1'b0; rf_raddr_b = 5'd1;
-    edg_time = X; edg_val = Y[7:0]; edg_oe = Y[15:8]; edg_en = 1'b1;
+    rf_re_a = 1'b0; rf_raddr_a = {5'b0, f_rr};
+        edg_time = X; edg_val = Y[7:0]; edg_oe = Y[15:8]; edg_en = 1'b1;
     w_active_next = w_active; w_kind_next = w_kind; w_timer_next = w_timer;
     w_inf_next = w_inf; w_pinmask_next = w_pinmask;
     cy_next = cy_q; ovf_next = ovf_q; zero_next = zero_q; tmo_next = 1'b0;
@@ -369,8 +363,7 @@ module thread #(
         if (cond_ok) begin
           w_active_next = 1'b0;
           tmo_next = timed_out;
-          if (timed_out) begin trc_we = 1'b1; trc_evt = `TEVT_TMO; end
-        end else begin
+                  end else begin
           pc_next = pc;
           if (!w_inf && w_timer != 5'd0) w_timer_next = w_timer - 5'd1;
         end
@@ -380,11 +373,11 @@ module thread #(
         case (opcode)
           // -----------------------------------------------------------
           `OP_MOV: begin
-            rf_re_a = 1'b1; rf_raddr_a = {1'b0, f_rr};
+            rf_re_a = 1'b1; rf_raddr_a = {5'b0, f_rr};
             case (f_dst)
               2'd0: x_next = mov_src(f_src);
               2'd1: y_next = mov_src(f_src);
-              2'd2: begin rf_we = 1'b1; rf_waddr = {1'b0, f_rr};
+              2'd2: begin rf_we = 1'b1; rf_waddr = {5'b0, f_rr};
                         rf_wdata = mov_src(f_src); end
               default: x_next = rf_rdata_a;   // LDS-style read
             endcase
@@ -415,7 +408,7 @@ module thread #(
             end else if (br_taken) begin
               pc_next = pc + 9'(off8) + 9'd1;
               if (f_a[5]) begin // link form: return addr -> rf[9]
-                rf_we = 1'b1; rf_waddr = 5'd9; rf_wdata = {6'h0, pc + 1'b1};
+                rf_we = 1'b1; rf_waddr = 8'd9; rf_wdata = {6'h0, pc + 1'b1};
               end
             end
           end
@@ -482,7 +475,7 @@ module thread #(
               `PS_XLO: begin tx_wr = 1'b1; tx_wdata = X[7:0]; end
               `PS_XHI: begin tx_wr = 1'b1; tx_wdata = X[15:8]; end
               `PS_STK: begin
-                rf_we = 1'b1; rf_waddr = sp[4:0]; rf_wdata = X;
+                rf_we = 1'b1; rf_waddr = 8'd128 + {2'd0, sp}; rf_wdata = X;
                 sp_next = sp - 6'd1;
               end
               `PS_MBX: begin tx_wr = 1'b1; tx_wdata = X[7:0]; end
@@ -494,7 +487,7 @@ module thread #(
             case (f_r)
               `PP_XLO: begin rx_rd = 1'b1; x_next = {X[15:8], rx_rdata}; end
               `PP_XHI: begin rx_rd = 1'b1; x_next = {rx_rdata, X[7:0]}; end
-              `PP_STK: begin rf_re_a = 1'b1; rf_raddr_a = sp[4:0];
+              `PP_STK: begin rf_re_a = 1'b1; rf_raddr_a = 8'd128 + {2'd0, sp};
                            x_next = rf_rdata_a; sp_next = sp + 6'd1; end
               `PP_MBX: begin rx_rd = 1'b1; x_next = {8'h00, rx_rdata}; end
               default: ;
@@ -524,24 +517,24 @@ module thread #(
           `OP_LDI: begin
             // LDI r, imm16 — immediate word lives at pc+1; fetched through a
             // dedicated read lane (ldi_word). PC skips the operand word.
-            rf_we = 1'b1; rf_waddr = {1'b0, f_rr}; rf_wdata = ldi_word;
+            rf_we = 1'b1; rf_waddr = {5'b0, f_rr}; rf_wdata = ldi_word;
             pc_next = pc + 2'd2;
           end
           // -----------------------------------------------------------
           `OP_JMPR: begin
-            rf_re_a = 1'b1; rf_raddr_a = {1'b0, f_rr};
+            rf_re_a = 1'b1; rf_raddr_a = {5'b0, f_rr};
             if (f_a[5] == 1'b0) begin
               pc_next = rf_rdata_a[`JP_PROG_AW-1:0];
             end else begin
               pc_next = pc + {1'b0, imm9} + 1'b1; // direct relative imm9
             end
             if (f_a[4]) begin
-              rf_we = 1'b1; rf_waddr = 5'd9; rf_wdata = {6'h0, pc + 1'b1};
+              rf_we = 1'b1; rf_waddr = 8'd9; rf_wdata = {6'h0, pc + 1'b1};
             end
           end
           // -----------------------------------------------------------
           `OP_TRC: begin
-            trc_we = trace_en;
+            trc_we = 1'b1;
             trc_evt = f_r[2] ? `TEVT_SW2 : `TEVT_SW1;
           end
           // -----------------------------------------------------------
@@ -586,7 +579,7 @@ module thread #(
               `EXT_DBGRD:   x_next = {8'h00, ui_in};
               `EXT_GETSP:   x_next = {10'h0, sp};
               `EXT_SETSP:   begin sp_next = X[5:0];
-                            rf_we = 1'b1; rf_waddr = 5'd10;
+                            rf_we = 1'b1; rf_waddr = 8'd10;
                             rf_wdata = {10'h0, X[5:0]}; end
               `EXT_IDLE: begin
                 w_active_next = 1'b1; w_kind_next = `W_EV; w_inf_next = 1'b1;
@@ -612,31 +605,56 @@ module thread #(
   end
 
   // =========================================================================
-  // Commit
+  // Commit — one owner per register, nonblocking, explicit reset
   // =========================================================================
+  wire exec_now = grant & running & ~stalling & ~w_active & ~illegal;
+
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      pc <= {`JP_PROG_AW{1'b0}}; running <= 1'b0;
-      X <= 16'h0; Y <= 16'h0; sp <= 6'h0;
-      cy_q <= 1'b0; ovf_q <= 1'b0; zero_q <= 1'b0; tmo_q <= 1'b0;
-      w_active <= 1'b0; w_kind <= 3'd0; w_timer <= 5'd0; w_inf <= 1'b0;
-      w_pinmask <= 8'h0; err_sticky <= 1'b0; ev_pol <= 1'b0; ev_mask <= 16'h0;
-      ext_trg_we_o <= 1'b0; ext_trg_bits_o <= 4'h0;
-      ext_idle_we_o <= 1'b0; ext_idle_mask_o <= 16'h0;
+      pc        <= {`JP_PROG_AW{1'b0}};
+      running   <= 1'b0;
+      X         <= 16'h0;
+      Y         <= 16'h0;
+      sp        <= 6'h0;
+      cy_q      <= 1'b0;
+      ovf_q     <= 1'b0;
+      zero_q    <= 1'b0;
+      tmo_q     <= 1'b0;
+      w_active  <= 1'b0;
+      w_kind    <= 3'd0;
+      w_timer   <= 5'd0;
+      w_inf     <= 1'b0;
+      w_pinmask <= 8'h0;
+      ev_mask   <= 16'h0;
+      ev_pol    <= 1'b0;
+      err_sticky<= 1'b0;
+      ext_trg_we_o   <= 1'b0;
+      ext_trg_bits_o <= 4'h0;
+      ext_idle_we_o  <= 1'b0;
+      ext_idle_mask_o<= 16'h0;
     end else begin
       pc        <= pc_next;
-      running   <= start_lvl & ~halt_next;
+      running   <= start_lvl & ~(halt_next & exec_now);
       X         <= x_next;
       Y         <= y_next;
       sp        <= sp_next;
-      cy_q <= cy_next; ovf_q <= ovf_next; zero_q <= zero_next; tmo_q <= tmo_next;
-      w_active <= w_active_next; w_kind <= w_kind_next; w_timer <= w_timer_next;
-      w_inf <= w_inf_next; w_pinmask <= w_pinmask_next;
-      ev_pol <= ev_pol_next; ev_mask <= ev_mask_next;
-      err_sticky <= err_sticky | err_set;
-      ext_trg_we_o <= ext_trg_we_o & grant & running & ~stalling & ~w_active & ~illegal;
-      ext_idle_we_o <= ext_idle_we_o & grant & running & ~stalling & ~w_active & ~illegal;
-      if (rf_wen) rf[rf_widx] <= rf_wval;
+      cy_q      <= cy_next;
+      ovf_q     <= ovf_next;
+      zero_q    <= zero_next;
+      tmo_q     <= tmo_next;
+      w_active  <= w_active_next;
+      w_kind    <= w_kind_next;
+      w_timer   <= w_timer_next;
+      w_inf     <= w_inf_next;
+      w_pinmask <= w_pinmask_next;
+      ev_mask   <= ev_mask_next;
+      ev_pol    <= ev_pol_next;
+      err_sticky<= (err_sticky | (err_set & exec_now)) & ~err_clr;
+      // single-cycle pulses to shared blocks
+      ext_trg_we_o    <= ext_trg_we  & exec_now;
+      ext_idle_we_o   <= ext_idle_we & exec_now;
+      if (ext_trg_we)  ext_trg_bits_o  <= X[3:0];
+      if (ext_idle_we) ext_idle_mask_o <= X;
     end
   end
 

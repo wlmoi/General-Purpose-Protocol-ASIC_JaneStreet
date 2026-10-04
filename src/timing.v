@@ -21,14 +21,17 @@ module timing (
     input  wire                          en,            // core enabled (time runs)
     // thread deadline writes (one-hot from scheduler grant)
     input  wire [`JP_NUM_THREADS-1:0]    d_we,
-    input  wire [1:0]                    d_wsel,
-    input  wire [`JP_TIME_W-1:0]         d_wdata,
+    input  wire [`JP_TIME_W-1:0]         d_wdata,       // shared data bus
+    input  wire [`JP_NUM_THREADS-1:0]    clr_dl,        // level: D := 0
     output reg  [`JP_TIME_W-1:0]         time_q,
     output wire [`JP_TIME_W-1:0]         time_d,       // next value (sampled same-cycle)
     // per-thread readiness
     output wire [`JP_NUM_THREADS-1:0]    ready,
     // deadline readout for CSRs
-    output wire [`JP_TIME_W-1:0]         d_rd  [0:`JP_NUM_THREADS-1]
+    output wire [`JP_TIME_W-1:0]         dl0,
+    output wire [`JP_TIME_W-1:0]         dl1,
+    output wire [`JP_TIME_W-1:0]         dl2,
+    output wire [`JP_TIME_W-1:0]         dl3
 );
 
   reg [`JP_TIME_W-1:0] dl [0:`JP_NUM_THREADS-1];
@@ -50,15 +53,23 @@ module timing (
     for (g = 0; g < `JP_NUM_THREADS; g = g + 1) begin : g_ready
       wire [`JP_TIME_W-1:0] diff = time_q - dl[g];
       assign ready[g] = (dl[g] == {`JP_TIME_W{1'b0}}) ? 1'b1 : ~diff[`JP_TIME_W-1];
-      assign d_rd[g]  = dl[g];
     end
   endgenerate
 
+  assign dl0 = dl[0];
+  assign dl1 = dl[1];
+  assign dl2 = dl[2];
+  assign dl3 = dl[3];
+
   always @(posedge clk) begin
-    if (d_we[0]) dl[0] <= d_wdata;
-    if (d_we[1]) dl[1] <= d_wdata;
-    if (d_we[2]) dl[2] <= d_wdata;
-    if (d_we[3]) dl[3] <= d_wdata;
+    if (clr_dl[0])   dl[0] <= {`JP_TIME_W{1'b0}};
+    else if (d_we[0]) dl[0] <= d_wdata;
+    if (clr_dl[1])   dl[1] <= {`JP_TIME_W{1'b0}};
+    else if (d_we[1]) dl[1] <= d_wdata;
+    if (clr_dl[2])   dl[2] <= {`JP_TIME_W{1'b0}};
+    else if (d_we[2]) dl[2] <= d_wdata;
+    if (clr_dl[3])   dl[3] <= {`JP_TIME_W{1'b0}};
+    else if (d_we[3]) dl[3] <= d_wdata;
   end
 
 endmodule

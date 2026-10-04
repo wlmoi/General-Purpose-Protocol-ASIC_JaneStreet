@@ -24,9 +24,13 @@
 module prog_mem (
     input  wire                     clk,
     input  wire                     rst_n,
-    // engine fetch port
+    // engine fetch port (granted thread's PC; top muxes sel_q)
     input  wire [`JP_PROG_AW-1:0]   fetch_addr,
     output wire [`JP_INST_W-1:0]    fetch_data,
+    // LDI operand lane: combinational read at pc+1 (no write conflict:
+    // host writes are staged to a shadow register and applied with hwe)
+    input  wire [`JP_PROG_AW-1:0]   ldi_addr,
+    output wire [`JP_INST_W-1:0]    ldi_data,
     // host port
     input  wire                     hre,
     input  wire                     hwe,
@@ -34,7 +38,7 @@ module prog_mem (
     input  wire [`JP_INST_W-1:0]    hwdata,
     input  wire                     hbe,           // 1=high byte,0=low byte
     output reg  [`JP_INST_W-1:0]    hrd,
-    // stall flag to scheduler (host write occupies the port this cycle)
+    // stall flag to scheduler (host access occupies the port this cycle)
     output wire                     port_busy
 );
 
@@ -62,5 +66,6 @@ module prog_mem (
   end
 
   assign fetch_data = mem[fetch_addr];
+  assign ldi_data   = mem[ldi_addr];
 
 endmodule
