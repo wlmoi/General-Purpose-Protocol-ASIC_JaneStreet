@@ -10,8 +10,6 @@ jobs:
     steps:
       - name: checkout repo
         uses: actions/checkout@v6
-        with:
-          submodules: recursive
 
       - name: Build GDS
         uses: TinyTapeout/tt-gds-action@ttihp26b
@@ -31,8 +29,6 @@ jobs:
     steps:
       - name: checkout repo
         uses: actions/checkout@v6
-        with:
-          submodules: recursive
 
       - name: GL test
         uses: TinyTapeout/tt-gds-action/gl_test@ttihp26b
