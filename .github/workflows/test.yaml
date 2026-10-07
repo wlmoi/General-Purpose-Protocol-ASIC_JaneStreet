@@ -33,13 +33,13 @@ jobs:
           python -m cocotb_tools.check_results results.xml
 
       - name: Test Summary
-        uses: test-summary/action@v2.4
+        uses: test-summary/action@v2.6
         with:
           paths: "test/results.xml"
-        if: always()
+        if: ${{ always() && hashFiles('test/results.xml') != '' }}
 
       - name: upload waveform and test results
-        if: success() || failure()
+        if: ${{ always() && hashFiles('test/tb.fst', 'test/results.xml', 'test/output/**') != '' }}
         uses: actions/upload-artifact@v7
         with:
           name: test-results
