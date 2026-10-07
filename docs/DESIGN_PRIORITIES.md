@@ -38,7 +38,7 @@ Any macro is acceptable if it fits the allocated area and passes the Tiny
 Tapeout precheck. Confirm template availability and compatibility with the
 chosen shuttle before selecting or integrating a macro.
 
-The current 512-word program array does not establish SRAM macro integration
+The current 256-word program array does not establish SRAM macro integration
 or precheck compliance.
 
 ## Verification priorities

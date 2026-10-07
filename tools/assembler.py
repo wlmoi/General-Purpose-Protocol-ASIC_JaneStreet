@@ -1,5 +1,6 @@
 """Validated encoders for the integrated programmable GPIO core."""
 from __future__ import annotations
+from tools.config import PROGRAM_DEPTH
 
 def _range(value: int, low: int, high: int, name: str) -> int:
     if not low <= value <= high:
@@ -16,6 +17,9 @@ def mov(value: int, register: str = "x") -> int:
 
 def out(open_drain: bool = False) -> int:
     return _word(1, int(open_drain) << 9)
+
+def out_immediate(value: int, open_drain: bool = False) -> int:
+    return _word(1, ((3 if open_drain else 2) << 9) | _range(value, 0, 255, "GPIO value"))
 
 def alu(function: int) -> int:
     return _word(2, _range(function, 0, 7, "ALU function") << 9)
@@ -50,6 +54,6 @@ def halt() -> int:
     return _word(3, 7 << 9)
 
 def assemble(words: list[int]) -> list[int]:
-    if len(words) > 512:
-        raise ValueError("program exceeds 512 words")
+    if len(words) > PROGRAM_DEPTH:
+        raise ValueError(f"program exceeds {PROGRAM_DEPTH} words")
     return [_range(word, 0, 65535, "word") for word in words]

@@ -13,11 +13,10 @@
 `define JP_NUM_THREADS   4
 `define JP_THREAD_W      2
 
-// Instruction width / program memory depth (512 x 16). Area and macro
-// feasibility are not yet measured; see docs/AREA_TIMING.md.
+// Compact single-read-port program memory. See docs/AREA_TIMING.md.
 `define JP_INST_W        16
-`define JP_PROG_DEPTH    512
-`define JP_PROG_AW       9
+`define JP_PROG_DEPTH    256
+`define JP_PROG_AW       8
 
 // Data memory (X/Y windows): 4 threads x 32 registers each, plus a shared
 // window at 192..223 for host<->thread and thread<thread messaging.

@@ -1,7 +1,7 @@
 ## How it works
 
 This is a programmable digital protocol engine with four independent execution
-contexts sharing 512 x 16-bit host-loaded program storage. A deterministic
+contexts sharing 256 x 16-bit host-loaded program storage. A deterministic
 round-robin scheduler grants one context per enabled clock, so each context
 executes at most one instruction every four core clocks.
 
@@ -18,8 +18,10 @@ SPI mode-0 byte transfers, and single-master I2C writes with ACK sampling,
 NACK-to-STOP handling, and clock stretching. A combined program demonstrates
 all four contexts operating concurrently.
 
-Program storage is a synthesizable register array, not an integrated SRAM
-macro. This revision has not been validated through a new physical/GDS flow.
+Program storage is a compact single-read-port synthesizable register array,
+not an integrated SRAM macro. The concurrent demo uses 245/256 words. Local
+IHP synthesis estimates 43.8% of the supplied core area; the full updated
+physical/GDS flow still needs validation. See [area evidence](AREA_TIMING.md).
 
 ## How to test
 

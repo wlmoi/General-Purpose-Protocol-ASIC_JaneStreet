@@ -6,6 +6,7 @@ transport must obey the documented clock limits and serialize calls.
 """
 from collections.abc import Callable
 from tools.assembler import assemble
+from tools.config import PROGRAM_DEPTH
 
 class Engine:
     def __init__(self, transfer: Callable[[bytes], bytes]):
@@ -39,7 +40,7 @@ class Engine:
 
     def load(self, words: list[int], entry: int = 0, verify: bool = True) -> None:
         words = assemble(words)
-        if not 0 <= entry <= 511 or entry + len(words) > 512:
+        if not 0 <= entry < PROGRAM_DEPTH or entry + len(words) > PROGRAM_DEPTH:
             raise ValueError("program does not fit at entry address")
         data = b"".join(word.to_bytes(2, "little") for word in words)
         self.pause()
@@ -63,7 +64,7 @@ class Engine:
             raise IOError("pin ownership configuration rejected; inspect/clear sticky errors")
 
     def start(self, mask: int, entry: int = 0) -> None:
-        if not 1 <= mask <= 15 or not 0 <= entry <= 511:
+        if not 1 <= mask <= 15 or not 0 <= entry < PROGRAM_DEPTH:
             raise ValueError("invalid start mask or entry address")
         self.write(6, entry & 255)
         self.write(7, entry >> 8)

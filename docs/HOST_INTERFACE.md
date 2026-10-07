@@ -8,7 +8,7 @@ MISO is zero while CS is inactive; this dedicated output is not tri-stated.
 Every frame starts with `{write, address[6:0]}`, followed by data bytes.
 Writes have bit 7 set; reads have bit 7 clear and transmit dummy data bytes.
 CS stays low for the complete frame. The register address stays fixed across
-a burst; only DATA's internal byte address auto-increments, modulo 1024.
+a burst; only DATA's internal byte address auto-increments, modulo 512.
 Program words use little-endian bytes: low byte then high byte.
 
 | Address | Register | Behavior |
@@ -16,23 +16,26 @@ Program words use little-endian bytes: low byte then high byte.
 | 0 | CONTROL | R/W bit 0 enables core execution. Software pause retains pin state. |
 | 1 | STATUS | Read `{errors[3:0], running[3:0]}`. |
 | 2 | ADDRESS_LO | R/W program byte address bits 7:0. |
-| 3 | ADDRESS_HI | R/W program byte address bits 9:8 in bits 1:0. |
-| 4 | DATA | Read/write program byte, auto-increment. Writes accepted only while CONTROL=0; rejected writes do not advance address and set selected context error. |
+| 3 | ADDRESS_HI | R/W program byte address bit 8 in bit 0; nonzero bits 7:1 are rejected. |
+| 4 | DATA | Read/write program byte, auto-increment. Reads and writes accepted only while CONTROL=0; rejected accesses return zero on reads, do not advance address and set selected context error. |
 | 5 | CONTEXT | R/W selected context ID in bits 1:0. |
 | 6 | ENTRY_LO | R/W restart PC bits 7:0. |
-| 7 | ENTRY_HI | R/W restart PC bit 8 in bit 0. |
+| 7 | ENTRY_HI | Read zero; nonzero writes are rejected (PC is eight bits). |
 | 8 | RESTART | Write context bitmap: reset execution state, load ENTRY, start selected contexts. |
 | 9 | STOP | Write context bitmap: halt selected contexts and release their owned pins. |
 | 10 | PIN_MASK | R/W selected context output ownership. Writes require CONTROL=0 and no overlap with another context. Accepted changes release the old mask. |
 | 11 | ERROR_CLEAR | Write-one-to-clear context error bitmap. |
-| 12 | ID | Read 0xA6. |
+| 12 | ID | Read 0xA7 (compact ISA/memory revision). |
 | 13, 14 | RECEIVE_LO/HI | Read selected context receive register. |
 | 15, 16 | PC_LO/HI | Read selected context PC. |
 | 17, 18 | X_LO/HI | Read selected context X. |
+| 19 | PROGRAM_AW | Read 8: program depth is 2^8 words. |
 
 Unmapped reads return zero; unmapped writes have no register effect.
-Control writes serialize with execution and may stretch a transaction. Pausing
-before multibyte debug reads gives a coherent snapshot. `ena` also pauses
+Control writes serialize with execution and may stretch a transaction.
+Program DATA reads require software pause because execution and readback
+share one read port. Pausing before multibyte debug reads gives a coherent
+snapshot. `ena` also pauses
 execution but releases physical GPIO, unlike software CONTROL pause.
 
 `tools.host.Engine` accepts a `transfer(bytes) -> bytes` callback supplied by
@@ -44,7 +47,7 @@ from tools.build_demo import build_demo
 from tools.host import Engine
 
 engine = Engine(board_spi_transfer)  # Your mode-0 board transport.
-assert engine.identify() == 0xA6
+assert engine.identify() == 0xA7
 image, contexts = build_demo()
 engine.pause()
 engine.stop()

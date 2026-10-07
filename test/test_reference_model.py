@@ -1,9 +1,10 @@
 import unittest
-from tools.assembler import alu, branch, halt, ldi, mov, out, sample, wait
+from tools.assembler import alu, assemble, branch, halt, ldi, mov, out, out_immediate, sample, wait
 from tools.build_demo import build_demo
 from tools.host import Engine
 from tools.protocols import i2c_write, spi_transfer, uart_rx, uart_tx
 from tools.reference_model import Machine
+from tools.config import PROGRAM_DEPTH, PROGRAM_MASK
 
 class ModelTests(unittest.TestCase):
     def test_round_robin_and_halt(self):
@@ -27,11 +28,11 @@ class ModelTests(unittest.TestCase):
             for offset in (-128, -1, 0, 127):
                 with self.subTest(fn=fn, offset=offset, taken=taken):
                     machine = Machine()
-                    machine.start(1, 511)
+                    machine.start(1, PROGRAM_MASK)
                     machine.x[0], machine.y[0] = a, b
-                    machine.program[511] = branch(offset, fn)
+                    machine.program[PROGRAM_MASK] = branch(offset, fn)
                     machine.tick()
-                    self.assertEqual(machine.pc[0], (offset if taken else 0) & 511)
+                    self.assertEqual(machine.pc[0], (offset if taken else 0) & PROGRAM_MASK)
 
     def test_wait_full_byte_and_enable_freeze(self):
         machine = Machine()
@@ -51,9 +52,13 @@ class ModelTests(unittest.TestCase):
 
     def test_masked_open_drain_and_literal_wrap(self):
         machine = Machine()
-        machine.start(1, 511)
-        machine.program[511], machine.program[0] = ldi(0xCAFE, "y")
+        machine.start(1, PROGRAM_MASK)
+        machine.program[PROGRAM_MASK], machine.program[0] = ldi(0xCAFE, "y")
         machine.tick()
+        self.assertTrue(machine.pending[0])
+        self.assertEqual(machine.pc[0], 0)
+        for _ in range(4):
+            machine.tick()
         self.assertEqual(machine.y[0], 0xCAFE)
         self.assertEqual(machine.pc[0], 1)
         machine.program[1] = out(True)
@@ -69,18 +74,46 @@ class ModelTests(unittest.TestCase):
                      lambda: branch(128), lambda: branch(0, 5), lambda: ldi(-1),
                      lambda: alu(8), lambda: sample(8), lambda: mov(0, "z"),
                      lambda: spi_transfer(0, sck=5, mosi=5), lambda: i2c_write(128, 0),
-                     lambda: uart_tx(0, pin=-1), lambda: uart_rx(bit_grants=5)]:
+                     lambda: uart_tx(0, pin=-1), lambda: uart_rx(bit_grants=5),
+                     lambda: uart_tx(0, bit_grants=258), lambda: spi_transfer(0, half_grants=258),
+                     lambda: out_immediate(256), lambda: assemble([halt()] * (PROGRAM_DEPTH + 1))]:
             with self.assertRaises(ValueError):
                 call()
+        self.assertLessEqual(len(uart_tx(0, bit_grants=257)), PROGRAM_DEPTH)
+        self.assertLessEqual(len(spi_transfer(0, half_grants=257)), PROGRAM_DEPTH)
 
     def test_demo_fits_and_ownership_is_disjoint(self):
         image, contexts = build_demo()
-        self.assertEqual(len(image), 512)
-        self.assertLessEqual(sum(c['words'] for c in contexts), 512)
+        self.assertEqual(len(image), PROGRAM_DEPTH)
+        self.assertLessEqual(sum(c['words'] for c in contexts), PROGRAM_DEPTH)
         used = 0
         for context in contexts:
             self.assertEqual(used & context['pin_mask'], 0)
             used |= context['pin_mask']
+
+    def test_literal_fetch_pause_and_restart(self):
+        machine = Machine()
+        machine.program[:3] = [*ldi(0x1234), halt()]
+        machine.start(1)
+        machine.tick()
+        self.assertTrue(machine.pending[0])
+        machine.tick(enabled=False)
+        self.assertEqual(machine.x[0], 0)
+        self.assertTrue(machine.pending[0])
+        for _ in range(4):
+            machine.tick()
+        self.assertEqual(machine.x[0], 0x1234)
+        self.assertFalse(machine.pending[0])
+        machine.start(1)
+        self.assertEqual(machine.pc[0], 0)
+        self.assertFalse(machine.pending[0])
+
+    def test_geometry_matches_rtl(self):
+        import re
+        from pathlib import Path
+        defines = (Path(__file__).resolve().parents[1] / 'src/defines.vh').read_text()
+        self.assertEqual(int(re.search(r'`define JP_PROG_DEPTH\s+(\d+)', defines)[1]), PROGRAM_DEPTH)
+        self.assertEqual(1 << int(re.search(r'`define JP_PROG_AW\s+(\d+)', defines)[1]), PROGRAM_DEPTH)
 
 class HostTests(unittest.TestCase):
     def test_load_frames_endianness_and_readback(self):
@@ -88,10 +121,10 @@ class HostTests(unittest.TestCase):
         def transfer(frame):
             frames.append(frame)
             return b'\0\x34\x12\xef\xbe' if frame == b'\x04\0\0\0\0' else bytes(len(frame))
-        Engine(transfer).load([0x1234, 0xBEEF], entry=300)
-        self.assertEqual(frames, [b'\x80\0', b'\x82\x58', b'\x83\x02',
-                                 b'\x84\x34\x12\xef\xbe', b'\x82\x58',
-                                 b'\x83\x02', b'\x04\0\0\0\0'])
+        Engine(transfer).load([0x1234, 0xBEEF], entry=150)
+        self.assertEqual(frames, [b'\x80\0', b'\x82\x2C', b'\x83\x01',
+                                 b'\x84\x34\x12\xef\xbe', b'\x82\x2C',
+                                 b'\x83\x01', b'\x04\0\0\0\0'])
 
     def test_bad_readback_and_short_transport(self):
         with self.assertRaises(IOError):

@@ -49,7 +49,7 @@ async def test_project(dut):
     async def read(address, count=1):
         return (await transfer(bytes([address]) + bytes(count)))[1:]
 
-    assert await read(12) == b'\xA6'
+    assert await read(12) == b'\xA7'
     program = b'\x5A\x00\xFF\x01\x00\x10\x00\x3E'
     await write(4, program)
     await write(2, [0])

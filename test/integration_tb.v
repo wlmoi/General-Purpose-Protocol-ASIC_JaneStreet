@@ -1,4 +1,5 @@
 `timescale 1ns/1ps
+`include "defines.vh"
 module integration_tb;
  reg clk = 0;
  always #5 clk = ~clk;
@@ -57,12 +58,12 @@ module integration_tb;
    $write("TRACE %0d %0d %0d %0d %0d %0d %0d %0d", cycle, before_gpio,
     ena, dut.slot, uio_out, uio_oe, dut.halted, dut.errors);
    for(t = 0; t < 4; t = t+1)
-    $write(" %0d %0d %0d %0d %0d", dut.pc[t], dut.x[t], dut.y[t],
-      dut.received[t], dut.wait_count[t]);
+    $write(" %0d %0d %0d %0d %0d %0d", dut.pc[t], dut.x[t], dut.y[t],
+      dut.received[t], dut.wait_count[t], dut.literal_pending[t]);
    $write("\n");
   end
  endtask
- reg [15:0] image [0:511];
+ reg [15:0] image [0:`JP_PROG_DEPTH-1];
  // Safety invariants checked on every simulation clock, including host loads.
  always @(posedge clk) begin
   #1;
@@ -83,18 +84,18 @@ module integration_tb;
  initial begin
   clocks(4); @(negedge clk); rst_n = 1; clocks(8);
   if (uio_oe !== 0 || uio_out !== 0 || uo_out !== 0) $fatal(1,"reset outputs");
-  rd(12, value); if(value !== 8'hA6) $fatal(1,"host ID: %h", value);
+  rd(12, value); if(value !== 8'hA7) $fatal(1,"host ID: %h", value);
   $readmemh("program.hex", image);
-  // Burst covers all 1024 bytes, including address bit 9 and wraparound.
+  // Burst covers all 512 bytes, including address bit 8 and wraparound.
   spi_begin(); spi_byte(8'h84, discarded);
-  for(i=0; i<512; i=i+1) begin
+  for(i=0; i<`JP_PROG_DEPTH; i=i+1) begin
    spi_byte(image[i][7:0], discarded); spi_byte(image[i][15:8], discarded);
   end
   spi_end();
   rd(2, value); if(value !== 0) $fatal(1,"address did not wrap");
   rd(3, value); if(value !== 0) $fatal(1,"high address did not wrap");
   spi_begin(); spi_byte(8'h04, discarded);
-  for(i=0; i<512; i=i+1) begin
+  for(i=0; i<`JP_PROG_DEPTH; i=i+1) begin
    spi_byte(0, value); if(value !== image[i][7:0]) $fatal(1,"readback low %d",i);
    spi_byte(0, value); if(value !== image[i][15:8]) $fatal(1,"readback high %d",i);
   end

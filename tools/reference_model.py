@@ -1,9 +1,10 @@
 """Clock-level reference model, including the two-flop GPIO input pipeline."""
 from dataclasses import dataclass, field
+from tools.config import PROGRAM_DEPTH, PROGRAM_MASK
 
 @dataclass
 class Machine:
-    program: list[int] = field(default_factory=lambda: [0] * 512)
+    program: list[int] = field(default_factory=lambda: [0] * PROGRAM_DEPTH)
     pc: list[int] = field(default_factory=lambda: [0] * 4)
     x: list[int] = field(default_factory=lambda: [0] * 4)
     y: list[int] = field(default_factory=lambda: [0] * 4)
@@ -12,6 +13,8 @@ class Machine:
     masks: list[int] = field(default_factory=lambda: [0] * 4)
     halted: list[bool] = field(default_factory=lambda: [True] * 4)
     errors: list[bool] = field(default_factory=lambda: [False] * 4)
+    pending: list[bool] = field(default_factory=lambda: [False] * 4)
+    literal_y: list[bool] = field(default_factory=lambda: [False] * 4)
     slot: int = 0
     output: int = 0
     output_oe: int = 0
@@ -23,7 +26,7 @@ class Machine:
             if mask & (1 << t):
                 self.pc[t] = entry
                 self.x[t] = self.y[t] = self.received[t] = self.wait[t] = 0
-                self.halted[t] = self.errors[t] = False
+                self.halted[t] = self.errors[t] = self.pending[t] = self.literal_y[t] = False
 
     def tick(self, gpio: int = 0, enabled: bool = True) -> None:
         pins = self.gpio_sync
@@ -41,12 +44,17 @@ class Machine:
         word = self.program[old_pc]
         op, fn, imm = word >> 12, (word >> 9) & 7, word & 255
         a, b, mask = self.x[t], self.y[t], self.masks[t]
-        self.pc[t] = (old_pc + 1) & 511
+        self.pc[t] = (old_pc + 1) & PROGRAM_MASK
+        if self.pending[t]:
+            (self.y if self.literal_y[t] else self.x)[t] = word
+            self.pending[t] = False
+            return
         if op == 0:
             (self.y if word & 256 else self.x)[t] = imm
         elif op == 1:
-            if fn in (0, 1):
-                value, oe = (a & 255, b & 255) if fn == 0 else (0, ~a & 255)
+            if fn in (0, 1, 2, 3):
+                data = imm if fn & 2 else a & 255
+                value, oe = (data, b & 255) if not fn & 1 else (0, ~data & 255)
                 self.output = (self.output & ~mask) | (value & mask)
                 self.output_oe = (self.output_oe & ~mask) | (oe & mask)
             else:
@@ -63,7 +71,7 @@ class Machine:
                 offset = (word >> 1) & 255
                 if offset >= 128:
                     offset -= 256
-                self.pc[t] = (old_pc + 1 + offset) & 511
+                self.pc[t] = (old_pc + 1 + offset) & PROGRAM_MASK
         elif op == 4:
             if fn == 0:
                 self.wait[t] = imm
@@ -85,7 +93,7 @@ class Machine:
             else:
                 self.errors[t] = True
         elif op == 9:
-            (self.y if word & 256 else self.x)[t] = self.program[(old_pc + 1) & 511]
-            self.pc[t] = (old_pc + 2) & 511
+            self.pending[t] = True
+            self.literal_y[t] = bool(word & 256)
         else:
             self.errors[t] = True

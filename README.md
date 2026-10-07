@@ -2,7 +2,7 @@
 
 # JaneStreet Programmable Protocol Engine
 
-Four programmable execution contexts share a host-loaded instruction memory
+Four programmable execution contexts share a compact 256-word instruction memory
 and eight protocol GPIO pins on Tiny Tapeout. Firmware demonstrates UART
 transmit/receive, SPI mode-0 transfers, and I2C writes using the same execution
 architecture. Disjoint output masks allow the contexts to run concurrently.
@@ -29,7 +29,8 @@ packages. The existing cocotb flow additionally uses `test/requirements.txt`.
 - [GPIO and board wiring](docs/GPIO.md)
 - [Organizer priorities](docs/DESIGN_PRIORITIES.md)
 
-This revision is verified in RTL simulation. SRAM macro integration, formal
+This revision passes RTL simulation and a local mapped-netlist functional test.
+IHP-library synthesis estimates 43.8% core utilization; see [area evidence](docs/AREA_TIMING.md). SRAM macro integration, formal
 proof, physical area/timing, a new GDS flow, and board validation remain
 outstanding. See [implementation status](docs/IMPLEMENTATION.md).
 

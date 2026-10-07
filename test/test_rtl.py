@@ -10,9 +10,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.assembler import alu, branch, halt, inp, ldi, mov, out, receive, sample, wait, wait_pin
+from tools.assembler import alu, branch, halt, inp, ldi, mov, out, out_immediate, receive, sample, wait, wait_pin
 from tools.protocols import i2c_write, spi_transfer, uart_rx, uart_tx
 from tools.reference_model import Machine
+from tools.config import PROGRAM_DEPTH
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -20,11 +21,11 @@ class RTLTests(unittest.TestCase):
     def simulate(self, programs, cycles, drives=None, enables=None, extra_setup="", after="", monitor=""):
         if not shutil.which("iverilog") or not shutil.which("vvp"):
             self.fail("iverilog and vvp must be on PATH")
-        image = [halt()] * 512
+        image = [halt()] * PROGRAM_DEPTH
         setup = []
         model = Machine()
         for tid, entry, mask, words in programs:
-            self.assertLessEqual(entry + len(words), 512)
+            self.assertLessEqual(entry + len(words), PROGRAM_DEPTH)
             image[entry:entry + len(words)] = words
             setup.append(f"select_thread(2'd{tid}, 9'd{entry}, 8'd{mask});")
             model.masks[tid] = mask
@@ -83,7 +84,7 @@ class RTLTests(unittest.TestCase):
                         sum(int(e) << t for t, e in enumerate(model.errors))]
             expected_state = []
             for t in range(4):
-                expected_state += [model.pc[t], model.x[t], model.y[t], model.received[t], model.wait[t]]
+                expected_state += [model.pc[t], model.x[t], model.y[t], model.received[t], model.wait[t], int(model.pending[t])]
             self.assertEqual([slot, output, oe, halted, errors, *state], expected + expected_state,
                              f"RTL/model mismatch at clock {cycle}")
         return rows, model
@@ -98,13 +99,15 @@ class RTLTests(unittest.TestCase):
                        lambda: inp(), lambda: sample(rng.randrange(8)),
                        lambda: sample(rng.randrange(8), True), lambda: receive(),
                        lambda: wait(rng.randrange(5)), lambda: 0xF000]
-            for _ in range(90):
+            choices += [lambda: out_immediate(rng.randrange(256)),
+                        lambda: out_immediate(rng.randrange(256), True)]
+            for _ in range(40):
                 if rng.randrange(8) == 0:
                     words.extend(ldi(rng.randrange(65536), rng.choice(["x", "y"])))
                 else:
                     words.append(rng.choice(choices)())
             words.append(halt())
-            programs.append((tid, tid * 128, 1 << tid, words))
+            programs.append((tid, tid * 64, 1 << tid, words))
         cycles = 1200
         _, model = self.simulate(programs, cycles,
                                  [rng.randrange(256) for _ in range(cycles)],
@@ -116,9 +119,10 @@ class RTLTests(unittest.TestCase):
         # Negative offset -2 decrements to zero, then conditional exit.
         words = [mov(4), mov(1, "y"), alu(1), branch(-2, 6),
                  wait_pin(0, 1), *ldi(0xCAFE, "y"), halt()]
-        rows, model = self.simulate([(0, 0, 1, words), (1, 511, 2, [0x9000])],
+        rows, model = self.simulate([(0, 0, 1, words), (1, PROGRAM_DEPTH - 1, 2, [0x9000])],
                                  160, [0] * 100 + [1] * 60)
-        self.assertEqual(rows[1][13:15], [1, words[0]])
+        self.assertEqual(rows[1][14:16], [0, 0])
+        self.assertEqual(rows[5][14:16], [1, words[0]])
         self.assertTrue(model.halted[0])
         self.assertEqual(model.y[0], 0xCAFE)
         self.assertEqual(model.y[1], 0xCAFE)
@@ -263,7 +267,7 @@ class RTLTests(unittest.TestCase):
           wr(5, 0); wr(2, 0); wr(3, 0); wr(4, 8'hEF);
           rd(1, value); if(!value[4]) $fatal(1,"missing write protection error");
           rd(2, value); if(value !== 0) $fatal(1,"rejected write advanced address");
-          rd(4, value); if(value !== 8'h01) $fatal(1,"live memory changed");
+          wr(0, 0); rd(4, value); if(value !== 8'h01) $fatal(1,"live memory changed");
           wr(11, 1); rd(1, value); if(value[4]) $fatal(1,"error clear");
           wr(9, 1); if(dut.output_oe_q !== 0) $fatal(1,"stop did not release pins");
           wr(0, 0); wr(6, 0); wr(7, 0); wr(8, 1);
@@ -271,9 +275,24 @@ class RTLTests(unittest.TestCase):
           @(negedge clk); rst_n = 0; clocks(3);
           if(uio_oe !== 0 || uio_out !== 0 || uo_out !== 0) $fatal(1,"reset safety");
           @(negedge clk); rst_n = 1; clocks(5);
-          rd(4, value); if(value !== 8'h01) $fatal(1,"reset destroyed program");
+          wr(0, 0); rd(4, value); if(value !== 8'h01) $fatal(1,"reset destroyed program");
         """
         self.simulate([(0, 0, 1, [mov(1), mov(1, "y"), out(), halt()])], 60, after=after)
+
+    def test_memory_geometry_live_read_and_invalid_high_address(self):
+        after = """
+          rd(19, value); if(value !== 8) $fatal(1,"program address width");
+          rd(4, value); if(value !== 0) $fatal(1,"live memory read accepted");
+          rd(2, value); if(value !== 0) $fatal(1,"rejected read advanced address");
+          rd(1, value); if(!value[4]) $fatal(1,"live read error missing");
+          wr(0, 0); wr(11, 1);
+          wr(3, 2); rd(3, value); if(value !== 0) $fatal(1,"invalid high address aliased");
+          rd(1, value); if(!value[4]) $fatal(1,"high address error missing");
+          wr(11, 1); wr(7, 1); rd(7, value); if(value !== 0) $fatal(1,"invalid entry aliased");
+          rd(1, value); if(!value[4]) $fatal(1,"entry error missing");
+          rd(4, value); if(value !== 8'h5A) $fatal(1,"paused memory read");
+        """
+        self.simulate([(0, 0, 0, [mov(0x5A), halt()])], 20, after=after)
 
 if __name__ == "__main__":
     unittest.main()

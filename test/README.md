@@ -6,7 +6,7 @@ From the repository root:
 python -m unittest discover -s test -p "test_*.py" -v
 ```
 
-This runs the reference-model and host-driver tests plus ten Icarus RTL
+This runs the reference-model and host-driver tests plus eleven Icarus RTL
 regressions. Icarus and vvp must be on PATH. Test programs, stimulus, simulator
 executables, and traces are kept in temporary directories.
 

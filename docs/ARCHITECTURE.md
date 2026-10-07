@@ -5,13 +5,19 @@ with the synchronized SPI register transport in `src/program_host.v`.
 `src/top.v` is a compatibility wrapper. The Tiny Tapeout source list includes
 only the integrated design, transport, and defines header.
 
-Four contexts share 512 x 16-bit program storage. Each context has a 9-bit PC,
+Four contexts share 256 x 16-bit program storage. Each context has an 8-bit PC,
 16-bit X/Y registers, a 16-bit serial receive register, an 8-bit wait counter,
 a halted flag, a sticky error flag, and an 8-bit output ownership mask. Each
 enabled core clock grants the next context, including halted/waiting contexts,
 so other contexts' timing is independent of whether a neighbor is runnable.
 
-The host loads program bytes while the core is paused. Reset does not reset
+Program storage has one shared asynchronous read port. Execution uses the
+selected PC; paused host readback uses the host byte address. LDI consumes
+two grants of its context: the first records the destination and advances
+to the literal; the second loads the literal and advances again. Immediate
+GPIO output instructions reduce firmware size without consuming X.
+
+The host loads and reads back program bytes while the core is paused. Reset does not reset
 or initialize program memory; it disables execution and clears all context
 and GPIO state. No boot firmware is implied. Host entry-point and restart
 commands make every context independently programmable within shared memory.

@@ -3,10 +3,11 @@ import argparse
 import json
 from pathlib import Path
 from tools.assembler import halt
+from tools.config import PROGRAM_DEPTH
 from tools.protocols import i2c_write, spi_transfer, uart_rx, uart_tx
 
 def build_demo() -> tuple[list[int], list[dict]]:
-    image = [halt()] * 512
+    image = [halt()] * PROGRAM_DEPTH
     contexts = []
     cursor = 0
     for tid, name, mask, words in [
@@ -30,7 +31,7 @@ def main() -> None:
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "program.hex").write_text("".join(f"{word:04x}\n" for word in image))
     (args.output / "contexts.json").write_text(json.dumps(contexts, indent=2) + "\n")
-    print(f"Wrote {sum(c['words'] for c in contexts)}/512 used words to {args.output}")
+    print(f"Wrote {sum(c['words'] for c in contexts)}/{PROGRAM_DEPTH} used words to {args.output}")
 
 if __name__ == "__main__":
     main()

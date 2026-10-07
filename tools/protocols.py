@@ -3,7 +3,7 @@
 Timing is expressed in context grants (four enabled core clocks). Execute
 without host control writes or ena pauses while a transaction is active.
 """
-from tools.assembler import alu, assemble, branch, halt, mov, out, receive, sample, wait, wait_pin
+from tools.assembler import alu, assemble, branch, halt, mov, out_immediate, receive, sample, wait, wait_pin
 
 def _pins(*pins: int) -> None:
     if any(not 0 <= pin <= 7 for pin in pins) or len(set(pins)) != len(pins):
@@ -11,15 +11,15 @@ def _pins(*pins: int) -> None:
 
 def uart_tx(value: int, pin: int = 1, bit_grants: int = 16) -> list[int]:
     """One 8N1 frame, LSB first, retaining idle high after HALT."""
-    if not 0 <= value <= 255 or not 3 <= bit_grants <= 258:
+    if not 0 <= value <= 255 or not 3 <= bit_grants <= 257:
         raise ValueError("byte or bit period out of range")
     _pins(pin)
     mask = 1 << pin
-    words = [mov(mask, "y"), mov(mask), out(), wait(bit_grants - 3)]
+    words = [mov(mask, "y"), out_immediate(mask), wait(bit_grants - 2)]
     for bit in [0] + [(value >> n) & 1 for n in range(8)] + [1]:
-        words += [mov(mask if bit else 0), out(), wait(bit_grants - 3)]
-    # HALT is one grant after the last wait rather than a next MOV/OUT.
-    words += [wait(2), halt()]
+        words += [out_immediate(mask if bit else 0), wait(bit_grants - 2)]
+    # Preserve the complete final stop-bit hold.
+    words += [wait(1), halt()]
     return assemble(words)
 
 def uart_rx(pin: int = 0, bit_grants: int = 16) -> list[int]:
@@ -41,16 +41,16 @@ def uart_rx(pin: int = 0, bit_grants: int = 16) -> list[int]:
 def spi_transfer(value: int, sck: int = 4, mosi: int = 5,
                  miso: int = 6, cs: int = 7, half_grants: int = 8) -> list[int]:
     """One mode-0 byte, MSB first, collecting MISO in received[context]."""
-    if not 0 <= value <= 255 or not 4 <= half_grants <= 258:
+    if not 0 <= value <= 255 or not 4 <= half_grants <= 257:
         raise ValueError("byte or half period out of range")
     _pins(sck, mosi, miso, cs)
     mask = (1 << sck) | (1 << mosi) | (1 << cs)
-    words = [mov(mask, "y"), mov(1 << cs), out(), wait(half_grants - 3)]
+    words = [mov(mask, "y"), out_immediate(1 << cs), wait(half_grants - 2)]
     for n in range(7, -1, -1):
         data = ((value >> n) & 1) << mosi
-        words += [mov(data), out(), wait(half_grants - 3),
-                  mov(data | (1 << sck)), out(), sample(miso), wait(half_grants - 4)]
-    words += [mov(0), out(), wait(half_grants - 3), mov(1 << cs), out(), halt()]
+        words += [out_immediate(data), wait(half_grants - 2),
+                  out_immediate(data | (1 << sck)), sample(miso), wait(half_grants - 3)]
+    words += [out_immediate(0), wait(half_grants - 2), out_immediate(1 << cs), halt()]
     return assemble(words)
 
 def i2c_write(address: int, value: int, sda: int = 2, scl: int = 3,
@@ -68,7 +68,7 @@ def i2c_write(address: int, value: int, sda: int = 2, scl: int = 3,
     words: list[int] = []
     nack_branches: list[int] = []
     def drive(released: int, clock_high: bool = False) -> None:
-        words.extend([mov(released), out(open_drain=True)])
+        words.append(out_immediate(released, open_drain=True))
         if clock_high:
             words.append(wait_pin(scl, 1))
         words.append(wait(hold_grants))

@@ -15,9 +15,9 @@ are shifted into the receive register; zero means the completed address/data
 phases were acknowledged. A nonzero result indicates NACK; it does not identify
 whether the address or data was rejected. No automatic retry is performed.
 
-`python -m tools.build_demo` packs four contexts into one 512-word image: UART
+`python -m tools.build_demo` packs four contexts into one 256-word image: UART
 RX, UART TX, I2C write, and SPI transfer. The combined RTL regression executes
-all four concurrently and checks received results and preservation of other
+all four concurrently (245/256 words) and checks received results and preservation of other
 contexts' outputs. UART TX/RX, SPI transfer, I2C ACK/stretching, and I2C NACK
 handling also have separate wire-level checks.
 
