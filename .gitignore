@@ -1,1 +1,8 @@
-(empty)
+__pycache__/
+*.pyc
+sim.out
+*.fst
+build/
+.venv/
+test/sim_build/
+test/results.xml

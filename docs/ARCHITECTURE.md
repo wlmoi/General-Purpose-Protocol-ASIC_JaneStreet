@@ -1,5 +1,37 @@
 # Architecture
 
-The checked-in implementation currently contains a four-slot round-robin execution core in `src/jane_top.v`. Each enabled clock selects one slot, advances its program counter, and executes one instruction. Program storage is a 512 x 16-bit synthesizable array initialized to zero in simulation.
+The integrated design is `tt_um_janestreet_protocol_engine` in `src/jane_top.v`,
+with the synchronized SPI register transport in `src/program_host.v`.
+`src/top.v` is a compatibility wrapper. The Tiny Tapeout source list includes
+only the integrated design, transport, and defines header.
 
-The Tiny Tapeout wrapper is `tt_um_janestreet_protocol_engine`; `src/top.v` is a compatibility wrapper. The present integration exposes the execution output and GPIO input/output buses. The legacy peripheral modules remain separate and are not connected to the top-level core yet.
+Four contexts share 512 x 16-bit program storage. Each context has a 9-bit PC,
+16-bit X/Y registers, a 16-bit serial receive register, an 8-bit wait counter,
+a halted flag, a sticky error flag, and an 8-bit output ownership mask. Each
+enabled core clock grants the next context, including halted/waiting contexts,
+so other contexts' timing is independent of whether a neighbor is runnable.
+
+The host loads program bytes while the core is paused. Reset does not reset
+or initialize program memory; it disables execution and clears all context
+and GPIO state. No boot firmware is implied. Host entry-point and restart
+commands make every context independently programmable within shared memory.
+
+All GPIO inputs pass through two flip-flops. Each output update merges only
+the issuing context's ownership mask into shared value/enable registers.
+Overlapping ownership is rejected by the host configuration interface. In
+open-drain mode, zero drives low and one releases the line; the output value
+for owned pins is always zero. Input pins need no output ownership allocation.
+
+The serial receive register separates sampled data from X, allowing GPIO
+output instructions to modify X while accumulating incoming bits. Both
+MSB-first 16-bit shifting and LSB-first 8-bit shifting are supported.
+
+Host configuration/control writes serialize with instruction retirement and
+can stretch protocol timing. Load/configure/start while paused; avoid control
+writes during time-sensitive transfers. Pin-level waits consume only that
+context's grants and can wait indefinitely without blocking neighbors.
+
+The legacy `host_if.v`, `thread.v`, `prog_mem.v`, `dm.v`, `gpio.v`,
+`bit_engine.v`, `edge_units.v`, `fifo.v`, and `timing.v` are not integrated.
+Their comments and constants describe earlier proposals, not supported ISA
+or proven implementation behavior. See [ISA](ISA.md) for the implemented ISA.

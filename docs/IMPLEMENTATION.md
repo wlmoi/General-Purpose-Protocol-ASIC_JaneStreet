@@ -1,5 +1,34 @@
-# Implementation Status
+# Implementation status
 
-The current checked-in implementation compiles with Icarus using `src/*.v` and the Tiny Tapeout testbench. The integrated top is `tt_um_janestreet_protocol_engine` in `src/jane_top.v`; it has four deterministic round-robin slots, 512 x 16-bit program storage, X/Y state, wait counters, GPIO input, output value/output-enable registers, branch, halt, ALU, and load-immediate operations.
+The integrated top is `tt_um_janestreet_protocol_engine` in `src/jane_top.v`,
+with `src/program_host.v` providing its synchronized mode-0 SPI transport.
+It implements four deterministic round-robin contexts; host-loadable 512 x
+16-bit storage; X/Y and receive registers; full-byte cycle waits and pin waits;
+conditional branches; masked push-pull/open-drain GPIO; synchronized inputs;
+halt, stop/restart, status, and sticky errors. GPIO activity is no longer
+modified by the earlier hardening activity accumulator.
 
-`src/thread.v`, `host_if.v`, `prog_mem.v`, `dm.v`, `gpio.v`, `bit_engine.v`, `edge_units.v`, `fifo.v`, and `csr.v` are present as standalone RTL modules but are not connected to the current top. Their integration is future work, as are host programming, trace capture, reference-model co-simulation, assertions, synthesis, STA, place-and-route, DRC, LVS, and protocol firmware.
+The host can load/read back all 1024 program bytes, configure disjoint output
+ownership, and start contexts at different entry points. Live program writes
+and ownership changes are rejected. Reset halts execution and releases pins.
+HALT preserves outputs; host STOP releases them. Program memory is not reset
+or initialized and is not an SRAM macro.
+
+Firmware and regression coverage demonstrate UART TX/RX, SPI mode-0 byte
+transfers, and single-master I2C writes with ACK/NACK and stretching. A packed
+four-context program demonstrates concurrent operation. See [protocol scope](PROTOCOLS.md).
+
+Python tools provide validated assembly encoders, a cycle model, a transport-
+independent host driver, and demo-image generation. Tests compare RTL state
+against the model every execution clock and independently inspect serial
+waveforms. The CI test workflow runs both stdlib regressions and the pin-only
+cocotb test. See [verification status](VERIFICATION.md) for actual run results.
+
+Legacy standalone modules (`thread.v`, `host_if.v`, `prog_mem.v`, `dm.v`,
+`gpio.v`, `bit_engine.v`, `edge_units.v`, `fifo.v`, and `timing.v`) remain
+unconnected and are not in the Tiny Tapeout source list.
+
+Still unverified or unimplemented: formal proof, integrated SRAM macros,
+area/timing closure, a physical/GDS run for this revision, board testing,
+streaming FIFOs, automatic pin-wait timeouts, trace capture, and advanced
+protocol modes. Earlier GDS-flow progress does not validate these RTL changes.

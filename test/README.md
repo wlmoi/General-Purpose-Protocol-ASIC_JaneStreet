@@ -1,47 +1,31 @@
-# Sample testbench for a Tiny Tapeout project
+# Test workflow
 
-This is a sample testbench for a Tiny Tapeout project. It uses [cocotb](https://docs.cocotb.org/en/stable/) to drive the DUT and check the outputs.
-See below to get started or for more information, check the [website](https://tinytapeout.com/hdl/testing/).
+From the repository root:
 
-## Setting up
-
-1. Edit [Makefile](Makefile) and modify `PROJECT_SOURCES` to point to your Verilog files.
-2. Edit [tb.v](tb.v) and replace `tt_um_example` with your module name.
-
-## How to run
-
-To run the RTL simulation:
-
-```sh
-make -B
+```text
+python -m unittest discover -s test -p "test_*.py" -v
 ```
 
-To run gatelevel simulation, first harden your project and copy `../runs/wokwi/results/final/verilog/gl/{your_module_name}.v` to `gate_level_netlist.v`.
+This runs the reference-model and host-driver tests plus ten Icarus RTL
+regressions. Icarus and vvp must be on PATH. Test programs, stimulus, simulator
+executables, and traces are kept in temporary directories.
 
-Then run:
+The existing cocotb workflow uses `test/tb.v` and `test/test.py`, and checks only
+external pins so it can also run against a matching gate-level netlist. Install
+the pinned dependencies in `requirements.txt`, then on a system with Make:
 
-```sh
-make -B GATES=yes
+```text
+cd test
+make
+python -m cocotb_tools.check_results results.xml
 ```
 
-If you wish to save the waveform in VCD format instead of FST format, edit tb.v to use `$dumpfile("tb.vcd");` and then run:
+Without Make, run from the repository root using Python with the pinned test
+dependencies installed:
 
-```sh
-make -B FST=
+```text
+python -m tools.run_cocotb
 ```
 
-This will generate `tb.vcd` instead of `tb.fst`.
-
-## How to view the waveform file
-
-Using GTKWave
-
-```sh
-gtkwave tb.fst tb.gtkw
-```
-
-Using Surfer
-
-```sh
-surfer tb.fst
-```
+The CI workflow runs both suites. See [verification details](../docs/VERIFICATION.md)
+for coverage and limits.

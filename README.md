@@ -1,47 +1,42 @@
 ![](../../workflows/gds/badge.svg) ![](../../workflows/docs/badge.svg) ![](../../workflows/test/badge.svg) ![](../../workflows/fpga/badge.svg)
 
-# Tiny Tapeout Verilog Project Template
+# JaneStreet Programmable Protocol Engine
 
-- [Read the documentation for project](docs/info.md)
+Four programmable execution contexts share a host-loaded instruction memory
+and eight protocol GPIO pins on Tiny Tapeout. Firmware demonstrates UART
+transmit/receive, SPI mode-0 transfers, and I2C writes using the same execution
+architecture. Disjoint output masks allow the contexts to run concurrently.
 
-## What is Tiny Tapeout?
+The SPI host interface supports program loading/readback, entry points,
+start/stop, ownership, and status. GPIO supports synchronized inputs,
+masked push-pull outputs, and open-drain outputs. Differential regressions
+compare RTL against a Python cycle model, with separate serial wire checks.
 
-Tiny Tapeout is an educational project that aims to make it easier and cheaper than ever to get your digital and analog designs manufactured on a real chip.
+```text
+python -m unittest discover -s test -p "test_*.py" -v
+python -m tools.build_demo --output build/demo
+```
 
-To learn more and get started, visit https://tinytapeout.com.
+Use Python 3.11+, Icarus Verilog, and vvp on PATH. The stdlib tests need no pip
+packages. The existing cocotb flow additionally uses `test/requirements.txt`.
 
-## Set up your Verilog project
+- [Project datasheet](docs/info.md)
+- [Host interface and programming](docs/HOST_INTERFACE.md)
+- [Implemented ISA](docs/ISA.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Protocol demonstrations and limits](docs/PROTOCOLS.md)
+- [Verification evidence](docs/VERIFICATION.md)
+- [GPIO and board wiring](docs/GPIO.md)
+- [Organizer priorities](docs/DESIGN_PRIORITIES.md)
 
-1. Add your Verilog files to the `src` folder.
-2. Edit the [info.yaml](info.yaml) and update information about your project, paying special attention to the `source_files` and `top_module` properties. If you are upgrading an existing Tiny Tapeout project, check out our [online info.yaml migration tool](https://tinytapeout.github.io/tt-yaml-upgrade-tool/).
-3. Edit [docs/info.md](docs/info.md) and add a description of your project.
-4. Adapt the testbench to your design. See [test/README.md](test/README.md) for more information.
+This revision is verified in RTL simulation. SRAM macro integration, formal
+proof, physical area/timing, a new GDS flow, and board validation remain
+outstanding. See [implementation status](docs/IMPLEMENTATION.md).
 
-The GitHub action will automatically build the ASIC files using [LibreLane](https://www.zerotoasiccourse.com/terminology/librelane/).
+Tiny Tapeout is an educational project for manufacturing custom chips.
+See [Tiny Tapeout](https://tinytapeout.com) for board and shuttle information.
 
-## Enable GitHub actions to build the results page
-
-- [Enabling GitHub Pages](https://tinytapeout.com/faq/#my-github-action-is-failing-on-the-pages-part)
-
-## Resources
-
-- [FAQ](https://tinytapeout.com/faq/)
-- [Digital design lessons](https://tinytapeout.com/digital_design/)
-- [Learn how semiconductors work](https://tinytapeout.com/siliwiz/)
-- [Join the community](https://tinytapeout.com/discord)
-- [Build your design locally](https://www.tinytapeout.com/guides/local-hardening/)
-
-## What next?
-
-- [Submit your design to the next shuttle](https://app.tinytapeout.com/).
-- Edit [this README](README.md) and explain your design, how it works, and how to test it.
-- Share your project on your social network of choice:
-  - LinkedIn [#tinytapeout](https://www.linkedin.com/search/results/content/?keywords=%23tinytapeout) [@TinyTapeout](https://www.linkedin.com/company/100708654/)
-  - Mastodon [#tinytapeout](https://chaos.social/tags/tinytapeout) [@matthewvenn](https://chaos.social/@matthewvenn)
-  - X (formerly Twitter) [#tinytapeout](https://twitter.com/hashtag/tinytapeout) [@tinytapeout](https://twitter.com/tinytapeout)
-  - Bluesky [@tinytapeout.com](https://bsky.app/profile/tinytapeout.com)
-
-## Project and Author
+## Project and author
 
 This project is part of the work of [William Anthony](https://www.linkedin.com/in/wlmoi/).
 

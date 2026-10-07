@@ -13,8 +13,8 @@
 `define JP_NUM_THREADS   4
 `define JP_THREAD_W      2
 
-// Instruction width / program memory depth (512 x 16 verified against area
-// budget; see docs/AREA_TIMING.md).
+// Instruction width / program memory depth (512 x 16). Area and macro
+// feasibility are not yet measured; see docs/AREA_TIMING.md.
 `define JP_INST_W        16
 `define JP_PROG_DEPTH    512
 `define JP_PROG_AW       9
