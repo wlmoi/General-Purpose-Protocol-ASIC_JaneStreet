@@ -1,12 +1,43 @@
 import unittest
-from tools.assembler import alu, assemble, branch, halt, ldi, mov, out, out_immediate, sample, wait
+from tools.assembler import alu, assemble, branch, halt, ldi, mov, out, out_immediate, sample, signal_error, wait
 from tools.build_demo import build_demo
 from tools.host import Engine
-from tools.protocols import i2c_write, spi_transfer, uart_rx, uart_tx
+from tools.protocols import i2c_write, spi_transfer, uart_bit_grants, uart_rx, uart_tx
 from tools.reference_model import Machine
 from tools.config import PROGRAM_DEPTH, PROGRAM_MASK
 
 class ModelTests(unittest.TestCase):
+    def test_uart_baud_selection_and_firmware_boundaries(self):
+        for receive in (False, True):
+            grants = uart_bit_grants(50_000_000, 115_200, receive=receive)
+            self.assertEqual(grants, 108 if receive else 109)
+            self.assertLess(abs(50_000_000 / (4 * grants) / 115_200 - 1), 0.02)
+        for clock, baud in ((0, 115_200), (50_000_000, 0), (50_000_000, 9_600)):
+            with self.subTest(clock=clock, baud=baud), self.assertRaises(ValueError):
+                uart_bit_grants(clock, baud, receive=True)
+        self.assertEqual(len(uart_rx(bit_grants=256)), 29)
+        for period in (3, 5, 258):
+            with self.subTest(period=period), self.assertRaises(ValueError):
+                uart_rx(bit_grants=period)
+        for clock, expected_grants in ((50_000_000, 108), (12_000_000, 26)):
+            image, contexts = build_demo(clock_hz=clock, uart_baud=115_200)
+            self.assertEqual(len(image), PROGRAM_DEPTH)
+            self.assertEqual(sum(context['words'] for context in contexts), 254)
+            for context in contexts[:2]:
+                self.assertEqual(context['bit_grants'], expected_grants)
+                self.assertLess(abs(context['actual_baud'] / 115_200 - 1), 0.02)
+
+    def test_firmware_error_flag(self):
+        machine = Machine()
+        machine.program[:2] = [signal_error(), halt()]
+        machine.start(1)
+        machine.tick()
+        self.assertTrue(machine.errors[0])
+        self.assertFalse(machine.halted[0])
+        for _ in range(4):
+            machine.tick()
+        self.assertTrue(machine.halted[0])
+
     def test_round_robin_and_halt(self):
         machine = Machine()
         machine.program[:2] = [mov(0x5A), halt()]

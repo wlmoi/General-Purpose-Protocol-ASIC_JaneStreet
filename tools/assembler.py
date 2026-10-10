@@ -53,6 +53,10 @@ def ldi(value: int, register: str = "x") -> tuple[int, int]:
 def halt() -> int:
     return _word(3, 7 << 9)
 
+def signal_error() -> int:
+    """Set the context's sticky error flag and advance to the next word."""
+    return _word(3, 5 << 9)
+
 def assemble(words: list[int]) -> list[int]:
     if len(words) > PROGRAM_DEPTH:
         raise ValueError(f"program exceeds {PROGRAM_DEPTH} words")

@@ -16,12 +16,18 @@ Protocol behavior is firmware rather than dedicated UART/SPI/I2C hardware.
 The integrated RTL regressions demonstrate UART 8N1 transmit and receive,
 SPI mode-0 byte transfers, and single-master I2C writes with ACK sampling,
 NACK-to-STOP handling, and clock stretching. A combined program demonstrates
-all four contexts operating concurrently.
+all four contexts operating concurrently. UART RX qualifies the start-bit
+center and checks the stop-bit center. Framing errors set a host-visible
+sticky context error before the receive program halts.
 
 Program storage is a compact single-read-port synthesizable register array,
-not an integrated SRAM macro. The concurrent demo uses 245/256 words. Local
-IHP synthesis estimates 43.8% of the supplied core area; the full updated
-physical/GDS flow still needs validation. See [area evidence](AREA_TIMING.md).
+not an integrated SRAM macro. The concurrent demo uses 254/256 words. Local
+IHP synthesis estimates 43.8% of the supplied core area. GitHub passed the
+Tiny Tapeout SG13G2 GDS build, precheck, gate-level test, and viewer for commit
+`269b380`: [recorded CI result](https://github.com/wlmoi/General-Purpose-Protocol-ASIC_JaneStreet/actions/runs/37646552561).
+See [area evidence](AREA_TIMING.md) for the synthesis method and physical-flow status.
+The current competition workflow targets CMOS5L using the official
+`ihp-cmos5l` action and matching gate-level models.
 
 ## How to test
 
@@ -36,7 +42,9 @@ The first command runs model/host tests and RTL regressions. RTL tests load
 and read back the full program image through the external SPI pins, compare
 execution against the Python model every clock, and decode protocol waveforms.
 The second command generates `program.hex` and `contexts.json` for a four-context
-demo. Defaults are test timing parameters; choose timing for the attached devices.
+demo. UART defaults target 115200 baud at a 50 MHz core clock. Use
+`--clock-hz` and `--uart-baud` to generate firmware for the supplied clock
+and attached UART peer. Select SPI and I2C timing for the attached devices.
 
 Reset with `rst_n` low. Reset pauses the core, halts every context, clears
 ownership masks, and releases GPIO. Program storage is not initialized by
@@ -74,8 +82,9 @@ verification quality without fixed judging weights. UART, SPI, and I2C are
 the required protocol coverage. See [organizer guidance](DESIGN_PRIORITIES.md).
 
 The supplied firmware handles one byte/frame/transaction at a time. UART
-parity/framing-error detection, other SPI modes, I2C reads and multi-master
+parity, other SPI modes, I2C reads and multi-master
 arbitration, automatic pin-wait timeouts, and streaming FIFOs remain future
 work. A stuck pin wait can be interrupted using host STOP. Formal proof,
-SRAM macro integration, area/timing closure, and board measurements remain
-unverified. See [verification](VERIFICATION.md) and [implementation](IMPLEMENTATION.md).
+SRAM macro integration, detailed post-route area/timing analysis, and board
+measurements remain outstanding. See [verification](VERIFICATION.md) and
+[implementation](IMPLEMENTATION.md).

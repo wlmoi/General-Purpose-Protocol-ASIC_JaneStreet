@@ -17,6 +17,11 @@ two grants of its context: the first records the destination and advances
 to the literal; the second loads the literal and advances again. Immediate
 GPIO output instructions reduce firmware size without consuming X.
 
+The FPGA workflow selects JP_FPGA_SYNC_MEMORY for a falling-edge synchronous
+read. This maps program storage to one ICE40 block RAM and presents the next
+instruction before rising-edge execution. Both variants pass the same cycle
+reference model, host programming, and protocol waveform regressions.
+
 The host loads and reads back program bytes while the core is paused. Reset does not reset
 or initialize program memory; it disables execution and clears all context
 and GPIO state. No boot firmware is implied. Host entry-point and restart

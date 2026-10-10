@@ -35,7 +35,15 @@ module tt_um_janestreet_protocol_engine (
  // A single read mux serves execution and paused host readback. LDI fetches
  // its literal on this context's next grant instead of adding a second port.
  wire [`JP_PROG_AW-1:0] memory_address = core_enabled ? active_pc : byte_address[`JP_PROG_AW:1];
+`ifdef JP_FPGA_SYNC_MEMORY
+ // FPGA block RAM reads on the falling edge, preparing the next context's
+ // instruction for the rising-edge execution grant. ASIC storage uses the
+ // original combinational read port.
+ reg [15:0] instruction;
+ always @(negedge clk) instruction <= prog_mem_q[memory_address];
+`else
  wire [15:0] instruction = prog_mem_q[memory_address];
+`endif
  wire [3:0] opcode = instruction[15:12];
  wire [7:0] immediate = instruction[7:0];
  wire [2:0] function_code = instruction[11:9];

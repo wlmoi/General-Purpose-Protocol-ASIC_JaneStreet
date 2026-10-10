@@ -2,6 +2,7 @@ name: docs
 
 on:
   push:
+  pull_request:
   workflow_dispatch:
 
 jobs:
@@ -12,4 +13,4 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Build docs
-        uses: TinyTapeout/tt-gds-action/docs@ttihp26b
+        uses: TinyTapeout/tt-gds-action/docs@ihp-cmos5l

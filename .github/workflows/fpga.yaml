@@ -2,8 +2,7 @@ name: fpga
 
 on:
   push:
-    # Comment out (or remove) the following line to run the FPGA workflow on every push:
-    branches: none
+  pull_request:
   workflow_dispatch:
 
 jobs:
@@ -13,5 +12,34 @@ jobs:
       - name: checkout repo
         uses: actions/checkout@v6
 
+      - name: Select FPGA block RAM
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          header = Path('src/defines.vh')
+          header.write_text(header.read_text() + '\n`define JP_FPGA_SYNC_MEMORY\n')
+          PY
+
       - name: FPGA bitstream for TT ASIC Sim (ICE40UP5K)
-        uses: TinyTapeout/tt-gds-action/fpga/ice40up5k@ttihp26b
+        uses: TinyTapeout/tt-gds-action/fpga/ice40up5k@ihp-cmos5l
+        env:
+          TT_FPGA_FREQ: '12'
+          TT_FPGA_SEED: '10'
+
+      - name: Verify FPGA deliverables
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          prefix = Path('build/tt_um_janestreet_protocol_engine')
+          bitstream = prefix.with_suffix('.bin')
+          assert bitstream.is_file() and bitstream.stat().st_size > 0, 'FPGA bitstream required'
+          netlist = json.loads(prefix.with_suffix('.json').read_text())
+          cells = netlist['modules']['tt_fpga_top']['cells'].values()
+          ram_count = sum(cell['type'].startswith('SB_RAM40_4K') for cell in cells)
+          assert ram_count == 1, 'Expected one FPGA program block RAM'
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as summary:
+              summary.write(f'FPGA bitstream generated with {ram_count} program block RAM.\n')
+              summary.write(f'Bitstream size: {bitstream.stat().st_size} bytes.\n')
+          PY

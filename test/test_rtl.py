@@ -4,6 +4,7 @@ Run from the repository root: python -m unittest discover -s test -p "test_*.py"
 """
 from __future__ import annotations
 import random
+import os
 import shutil
 import subprocess
 import tempfile
@@ -62,7 +63,8 @@ class RTLTests(unittest.TestCase):
             (path / "stimulus.hex").write_text("\n".join(f"{w:03x}" for w in vector))
             (path / "case_body.vh").write_text(body)
             compile_result = subprocess.run([
-                "iverilog", "-g2012", "-s", "integration_tb", f"-I{ROOT / 'src'}", f"-I{path}",
+                "iverilog", "-g2012", *(["-DJP_FPGA_SYNC_MEMORY"] if os.getenv("JP_TEST_FPGA") == "1" else []),
+                "-s", "integration_tb", f"-I{ROOT / 'src'}", f"-I{path}",
                 "-o", str(path / "sim.out"), str(ROOT / "src/jane_top.v"),
                 str(ROOT / "src/program_host.v"), str(ROOT / "test/integration_tb.v")
             ], capture_output=True, text=True, timeout=30)
@@ -148,6 +150,74 @@ class RTLTests(unittest.TestCase):
         _, model = self.simulate([(0, 0, 0, uart_rx())], cycles, drives, extra_setup="gpio_drive = 1; clocks(4);")
         self.assertEqual(model.received[0], 0x69)
         self.assertTrue(model.halted[0])
+
+    def uart_receive_case(self, value=0x69, bit_grants=16, pin=0, period=None,
+                          start=80, stop=1, glitch=False):
+        period = period or bit_grants * 4
+        cycles = start + 11 * period + 32
+        mask = 1 << pin
+        drives = [mask] * cycles
+        if glitch:
+            drives[20:24] = [0] * 4
+        bits = [0] + [(value >> bit) & 1 for bit in range(8)] + [stop]
+        for index, bit in enumerate(bits):
+            first = start + index * period
+            drives[first:first + period] = [mask if bit else 0] * period
+        after = ""
+        if not stop:
+            after = 'rd(1, value); if(value !== 8\'h10) $fatal(1,"UART framing status");'
+        rows, model = self.simulate([(0, 0, 0, uart_rx(pin, bit_grants))], cycles,
+                                    drives, extra_setup=f"gpio_drive = {mask}; clocks(4);",
+                                    after=after)
+        self.assertEqual(model.received[0], value)
+        self.assertTrue(model.halted[0])
+        self.assertEqual(model.errors[0], not bool(stop))
+        self.assertTrue(all(row[5] == 0 for row in rows))
+        return rows, model
+
+    def test_uart_rx_start_glitch_and_valid_frame(self):
+        rows, _ = self.uart_receive_case(value=0xA5, glitch=True)
+        self.assertTrue(all(row[6] == 14 for row in rows[:80]))
+
+    def test_uart_rx_framing_error_status(self):
+        for value in (0x00, 0xFF, 0xA5):
+            with self.subTest(value=value):
+                self.uart_receive_case(value=value, stop=0)
+
+    def test_uart_rx_idle_qualification(self):
+        _, model = self.simulate([(0, 0, 0, uart_rx())], 600)
+        self.assertFalse(model.halted[0])
+        self.assertFalse(model.errors[0])
+        self.assertEqual(model.received[0], 0)
+        self.assertEqual(model.output_oe, 0)
+
+    def test_uart_rx_data_patterns_timing_and_pin_mapping(self):
+        for value, grants, pin, phase in ((0x00, 4, 0, 0), (0xFF, 16, 3, 1),
+                                           (0x55, 108, 7, 2), (0xAA, 256, 0, 3)):
+            with self.subTest(value=value, grants=grants, pin=pin, phase=phase):
+                self.uart_receive_case(value=value, bit_grants=grants, pin=pin, start=80 + phase)
+
+    def test_uart_rx_baud_mismatch(self):
+        # Independent peer timing around a 108-grant receiver at 50 MHz.
+        for period in (424, 432, 434, 440):
+            with self.subTest(period=period):
+                self.uart_receive_case(value=0x96, bit_grants=108, period=period, start=83)
+
+    def test_uart_tx_patterns_and_period_boundaries(self):
+        patterns = [(0x00, 3), (0xFF, 16), (0x55, 108), (0xAA, 257)]
+        programs = [(tid, tid * 32, 1 << tid, uart_tx(value, tid, grants))
+                    for tid, (value, grants) in enumerate(patterns)]
+        rows, model = self.simulate(programs, 257 * 4 * 12 + 32)
+        for tid, (value, grants) in enumerate(patterns):
+            wire = [(row[4] >> tid) & 1 for row in rows]
+            start = next(index for index in range(1, len(wire)) if wire[index - 1] == 1 and wire[index] == 0)
+            period = grants * 4
+            decoded = [wire[start + period * bit + period // 2] for bit in range(10)]
+            self.assertEqual(decoded, [0] + [(value >> bit) & 1 for bit in range(8)] + [1])
+            self.assertTrue(all(wire[start + 9 * period:]))
+            self.assertTrue(model.halted[tid])
+        self.assertEqual(model.output_oe, 15)
+        self.assertFalse(any(model.errors))
 
     def test_spi_mode0_wire_transfer(self):
         monitor = """
@@ -236,9 +306,10 @@ class RTLTests(unittest.TestCase):
         programs = [(c['tid'], c['entry'], c['pin_mask'], image[c['entry']:c['entry'] + c['words']])
                     for c in contexts]
         drives = [255] * 5000  # I2C peer NACKs; SPI peer returns all ones.
+        period = contexts[0]['bit_grants'] * 4
         frame = [0] + [(0x69 >> bit) & 1 for bit in range(8)] + [1]
         for n, bit in enumerate(frame):
-            for cycle in range(80 + n * 64, 80 + (n + 1) * 64):
+            for cycle in range(80 + n * period, 80 + (n + 1) * period):
                 drives[cycle] = (drives[cycle] & ~1) | bit
         rows, model = self.simulate(programs, 5000, drives,
                                     extra_setup="gpio_drive = 8'hFF; clocks(4);")
@@ -247,7 +318,7 @@ class RTLTests(unittest.TestCase):
         self.assertEqual(model.received, [0x69, 0, 1, 255])
         self.assertEqual(model.output_oe, 0xB2)
         # Concurrent I2C and SPI updates must preserve UART's driven idle high.
-        self.assertTrue(all(row[4] & 2 for row in rows[850:]))
+        self.assertTrue(all(row[4] & 2 for row in rows if row[6] & 2))
 
     def test_pin_ownership_rejects_overlap_and_releases_old_mask(self):
         after = """

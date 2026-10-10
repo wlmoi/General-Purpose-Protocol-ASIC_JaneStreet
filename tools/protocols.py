@@ -3,7 +3,22 @@
 Timing is expressed in context grants (four enabled core clocks). Execute
 without host control writes or ena pauses while a transaction is active.
 """
-from tools.assembler import alu, assemble, branch, halt, mov, out_immediate, receive, sample, wait, wait_pin
+from tools.assembler import alu, assemble, branch, halt, inp, mov, out_immediate, receive, sample, signal_error, wait, wait_pin
+
+def uart_bit_grants(clock_hz: int, baud_rate: int, receive: bool = False) -> int:
+    """Choose a UART bit period within 2% of the requested baud rate.
+
+    Each context grant takes four clocks. RX uses an even grant count so
+    the start-bit center and data-bit centers share an exact half period.
+    """
+    if clock_hz <= 0 or baud_rate <= 0:
+        raise ValueError("clock and baud rate must be positive")
+    step = 2 if receive else 1
+    low, high = (4, 256) if receive else (3, 257)
+    grants = min(range(low, high + 1, step), key=lambda count: abs(clock_hz / (4 * count) - baud_rate))
+    if abs(clock_hz / (4 * grants) / baud_rate - 1) > 0.02:
+        raise ValueError("requested baud rate exceeds the firmware's 2% timing budget")
+    return grants
 
 def _pins(*pins: int) -> None:
     if any(not 0 <= pin <= 7 for pin in pins) or len(set(pins)) != len(pins):
@@ -23,19 +38,23 @@ def uart_tx(value: int, pin: int = 1, bit_grants: int = 16) -> list[int]:
     return assemble(words)
 
 def uart_rx(pin: int = 0, bit_grants: int = 16) -> list[int]:
-    """Wait for start, sample eight bits near their centers, await stop high.
+    """Receive one 8N1 frame with qualified start and checked stop bits.
 
-    This example accepts one frame and does not detect parity/framing errors.
+    A high idle level arms reception. Short low pulses return to idle
+    detection. A low stop-bit center sets the sticky context error flag.
+    Read host STATUS before accepting RECEIVED as a valid byte.
     """
-    if not 4 <= bit_grants <= 170 or bit_grants % 2:
-        raise ValueError("RX bit grants must be even and in 4..170")
+    if not 4 <= bit_grants <= 256 or bit_grants % 2:
+        raise ValueError("RX bit grants must be even and in 4..256")
     _pins(pin)
-    words = [wait_pin(pin, 0), wait(bit_grants + bit_grants // 2 - 2)]
+    words = [mov(1 << pin, "y"), wait_pin(pin, 1), wait_pin(pin, 0),
+             wait(bit_grants // 2 - 2), inp(), alu(3), branch(-6, 6),
+             wait(bit_grants - 4)]
     for n in range(8):
         words += [sample(pin, lsb_first=True)]
         if n != 7:
             words += [wait(bit_grants - 2)]
-    words += [wait(bit_grants - 2), wait_pin(pin, 1), halt()]
+    words += [wait(bit_grants - 2), inp(), alu(3), branch(1, 6), signal_error(), halt()]
     return assemble(words)
 
 def spi_transfer(value: int, sck: int = 4, mosi: int = 5,

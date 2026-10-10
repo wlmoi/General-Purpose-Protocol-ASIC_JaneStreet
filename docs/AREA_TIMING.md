@@ -10,6 +10,8 @@ read paths. LDI fetches its literal on the context's next grant, and host DATA
 readback requires software pause. Immediate push-pull/open-drain instructions
 reduce the concurrent UART TX/RX + SPI + I2C demonstration from 335 words to
 245 words, retaining all four contexts within the smaller storage budget.
+The enhanced UART start qualifier and framing check bring the current
+concurrent demo to 254 words within the same storage capacity.
 
 Local synthesis used Yosys 0.69 via YoWASP, `synth -flatten -noabc`,
 `dfflibmap`, and ABC mapping against the official IHP typical Liberty library.
@@ -50,6 +52,14 @@ functional cell models generated from the same Liberty library. This validates
 functional behavior after synthesis; it is not an SDF timing simulation.
 
 The full LibreLane/OpenROAD flow was not rerun locally: Docker's Linux engine
-is unavailable. The updated revision still needs the GitHub GDS workflow,
-precheck, post-route STA, DRC/LVS, and board validation. No passing GDS or timing
-closure is claimed for this revision.
+is unavailable. GitHub subsequently completed the Tiny Tapeout GDS build,
+precheck, gate-level test, and viewer successfully on SG13G2 for commit `269b380`:
+[passing physical-flow run](https://github.com/wlmoi/General-Purpose-Protocol-ASIC_JaneStreet/actions/runs/37646552561).
+This CI result is separate from the local synthesis estimates above. Detailed
+post-route area/timing metrics have not been extracted here; board validation
+remains pending.
+
+The current competition workflow targets CMOS5L using the official
+`ihp-cmos5l` action and `ihp-sg13cmos5l` PDK. The mapping figures above use
+the recorded SG13G2 library and core area. CMOS5L hardening, precheck, and
+area/timing extraction are the next measurements for the competition target.
